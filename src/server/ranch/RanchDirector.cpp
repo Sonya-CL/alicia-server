@@ -2893,47 +2893,153 @@ void RanchDirector::HandleMountFamilyTree(
   ClientId clientId,
   const protocol::RanchCommandMountFamilyTree& command)
 {
-  // todo: implement horse family tree
+  protocol::RanchCommandMountFamilyTreeOK response{};
 
-  protocol::RanchCommandMountFamilyTreeOK response{
-    .ancestors = {
-      protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem {
-        .id = 1,
-        .name = "1",
-        .grade = 1,
-        .skinId = 1
-      },
-      protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem {
-        .id = 2,
-        .name = "2",
-        .grade = 4,
-        .skinId = 1
-      },
-      protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem {
-        .id = 3,
-        .name = "3",
-        .grade = 1,
-        .skinId = 1
-      },
-      protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem {
-        .id = 4,
-        .name = "4",
-        .grade = 1,
-        .skinId = 1
-      },
-      protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem {
-        .id = 5,
-        .name = "5",
-        .grade = 1,
-        .skinId = 1
-      },
-      protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem {
-        .id = 6,
-        .name = "6",
-        .grade = 1,
-        .skinId = 1
-      }}
-  };
+  std::vector<protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem> familyTree;
+
+  const auto& horseRecord = GetServerInstance().GetDataDirector().GetHorse(
+    command.horseUid);
+
+  if (not horseRecord.IsAvailable())
+  {
+    _commandServer.QueueCommand<decltype(response)>(
+      clientId,
+      [response]()
+      {
+        return response;
+      });
+    return;
+  }
+
+  std::vector<data::Uid> parents;
+
+  horseRecord.Immutable([&parents](const data::Horse& horse)
+  {
+    parents = horse.ancestors();
+  });
+
+  if (parents.size() == 2)
+  {
+    std::vector<data::Uid> grandparents_father;
+    std::vector<data::Uid> grandparents_mother;
+
+    // Remove all horseCache.Get() calls and rely on GetHorse() to trigger retrieval
+    const auto& fatherRecord = GetServerInstance().GetDataDirector().GetHorse(
+      parents[0]);
+    if (fatherRecord.IsAvailable())
+    {
+      fatherRecord.Immutable([&familyTree, &grandparents_father](const data::Horse& horse)
+      {
+        protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem father;
+        father.id = 1;
+        father.name = horse.name();
+        father.grade = horse.grade();
+        father.skinId = horse.parts.skinTid();
+
+        familyTree.emplace_back(father);
+
+        //get grandparents of father
+        grandparents_father = horse.ancestors();
+      });
+    }
+
+    // Force load mother horse into cache first  
+    const auto& motherRecord = GetServerInstance().GetDataDirector().GetHorse(
+      parents[1]);
+    if (motherRecord.IsAvailable())
+    {
+      motherRecord.Immutable([&familyTree, &grandparents_mother](const data::Horse& horse)
+      {
+        protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem mother;
+        mother.id = 2;
+        mother.name = horse.name();
+        mother.grade = horse.grade();
+        mother.skinId = horse.parts.skinTid();
+
+        familyTree.emplace_back(mother);
+
+        //get grandparents of mother
+        grandparents_mother = horse.ancestors();
+      });
+    }
+
+    //grandparents of father
+    if(grandparents_father.size() == 2)
+    {
+      // Force load grandfather into cache
+      const auto& grandfatherRecord = GetServerInstance().GetDataDirector().GetHorse(
+        grandparents_father[0]);
+      if (grandfatherRecord.IsAvailable())
+      {
+        grandfatherRecord.Immutable([&familyTree](const data::Horse& horse)
+        {
+          protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem grandfather;
+          grandfather.id = 3;
+          grandfather.name = horse.name();
+          grandfather.grade = horse.grade();
+          grandfather.skinId = horse.parts.skinTid();
+
+          familyTree.emplace_back(grandfather);
+        });
+      }
+
+      // Force load grandmother into cache
+      const auto& grandmotherRecord = GetServerInstance().GetDataDirector().GetHorse(
+        grandparents_father[1]);
+      if (grandmotherRecord.IsAvailable())
+      {
+        grandmotherRecord.Immutable([&familyTree](const data::Horse& horse)
+        {
+          protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem grandmother;
+          grandmother.id = 4;
+          grandmother.name = horse.name();
+          grandmother.grade = horse.grade();
+          grandmother.skinId = horse.parts.skinTid();
+
+          familyTree.emplace_back(grandmother);
+        });
+      }
+    }
+
+    //grandparents of mother
+    if(grandparents_mother.size() == 2)
+    {
+      // Force load grandfather (mother's side) into cache
+      const auto& grandfatherRecord = GetServerInstance().GetDataDirector().GetHorse(
+        grandparents_mother[0]);
+      if (grandfatherRecord.IsAvailable())
+      {
+        grandfatherRecord.Immutable([&familyTree](const data::Horse& horse)
+        {
+          protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem grandfather;
+          grandfather.id = 5;
+          grandfather.name = horse.name();
+          grandfather.grade = horse.grade();
+          grandfather.skinId = horse.parts.skinTid();
+
+          familyTree.emplace_back(grandfather);
+        });
+      }
+
+      // Force load grandmother (mother's side) into cache
+      const auto& grandmotherRecord = GetServerInstance().GetDataDirector().GetHorse(
+        grandparents_mother[1]);
+      if (grandmotherRecord.IsAvailable())
+      {
+        grandmotherRecord.Immutable([&familyTree](const data::Horse& horse)
+        {
+          protocol::RanchCommandMountFamilyTreeOK::MountFamilyTreeItem grandmother;
+          grandmother.id = 6;
+          grandmother.name = horse.name();
+          grandmother.grade = horse.grade();
+          grandmother.skinId = horse.parts.skinTid();
+
+          familyTree.emplace_back(grandmother);
+        });
+      }
+    }
+  }
+  response.ancestors = familyTree;
 
   _commandServer.QueueCommand<decltype(response)>(
     clientId,
