@@ -375,7 +375,7 @@ void RaceDirector::Tick() {
     {
       _commandServer.QueueCommand<protocol::AcCmdUserRaceCountdown>(
         roomClientId,
-        [&raceCountdown]()
+        [raceCountdown]()
         {
           return raceCountdown;
         });
