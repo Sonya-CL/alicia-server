@@ -2146,6 +2146,33 @@ struct AcCmdRCTriggerActivate
     SourceStream& stream);
 };
 
+struct AcCmdCRActivateSkillEffect
+{
+  uint16_t characterOid;
+  uint32_t skillId;         // What skill/effect to activate
+  uint32_t unk1;            // Unknown parameter
+  uint32_t unk2;            // Unknown parameter
+
+  static Command GetCommand()
+  {
+    return Command::AcCmdCRActivateSkillEffect;
+  }
+
+  //! Writes the command to a provided sink stream.
+  //! @param command Command.
+  //! @param stream Sink stream.
+  static void Write(
+    const AcCmdCRActivateSkillEffect& command,
+    SinkStream& stream);
+
+  //! Reader a command from a provided source stream.
+  //! @param command Command.
+  //! @param stream Source stream.
+  static void Read(
+    AcCmdCRActivateSkillEffect& command,
+    SourceStream& stream);
+};
+
 struct AcCmdRCAddSkillEffect
 {
   uint16_t characterOid;    // Target character

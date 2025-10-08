@@ -157,6 +157,7 @@ enum class Command : uint16_t
   AcCmdCRUseItemSlotNotify = 0xa5,
   AcCmdRCAddSkillEffect = 0xa6,
   AcCmdRCRemoveSkillEffect = 0xa7,
+  AcCmdCRActivateSkillEffect = 0xa8,
   AcCmdCRChangeUserSlotOK = 0xab,
   AcCmdCRChangeUserSlotCancel = 0xac,
   AcCmdCRChangeUserSlotNotify = 0xad,
