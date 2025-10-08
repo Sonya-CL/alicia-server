@@ -15,3 +15,6 @@ Testing/
 # vs
 .vs/
 .vscode/
+
+# Config files
+resources/config/server/config.yaml

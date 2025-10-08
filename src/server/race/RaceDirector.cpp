@@ -1720,36 +1720,27 @@ void RaceDirector::HandleUseMagicItem(
 
   // Notify other players that this player used their magic item
   protocol::AcCmdCRUseMagicItemNotify usageNotify{
-    .characterOid = command.type_copy,
-    .magicItemId = command.mode,
-    .unk3 = command.type_copy
+    .header1 = command.type_copy,
+    .magicType = command.mode,
+    .header2 = command.type_copy,
+    .tailParam = static_cast<uint32_t>(command.extraB.has_value() ? command.extraB.value() : 0)
   };
 
-  // Copy optional fields from the original command
-  if (command.vecA.has_value())
-    usageNotify.vecA = command.vecA.value();
-  if (command.vecB.has_value())
-    usageNotify.vecB = command.vecB.value();
-  if (command.idsBlock.has_value())
-    usageNotify.idsBlock = command.idsBlock.value();
-  if (command.extraB.has_value())
-    usageNotify.extraB = command.extraB.value();
-  if (command.extraF.has_value())
-    usageNotify.extraF = command.extraF.value();
-
-  // Special handling for magic items that require optional fields
-  if (command.mode == 2)  // Bolt only (ice wall handled separately)
+  // Copy vectors if present (modes 10/11)
+  if (command.vecA.has_value() && command.vecB.has_value())
   {
-    if (!usageNotify.idsBlock.has_value()) {
-      auto& idsBlock = usageNotify.idsBlock.emplace();
-      idsBlock.ids_count = 0;
+    usageNotify.vectors = std::make_pair(command.vecA.value(), command.vecB.value());
+  }
+  
+  // Copy extras if present
+  if (command.idsBlock.has_value())
+  {
+    const auto& idsBlock = command.idsBlock.value();
+    usageNotify.extras.resize(idsBlock.ids_count);
+    for (uint8_t i = 0; i < idsBlock.ids_count; ++i)
+    {
+      usageNotify.extras[i] = static_cast<uint16_t>(idsBlock.ids[i]);
     }
-    
-    // These items require extraB and extraF
-    if (!usageNotify.extraB.has_value())
-      usageNotify.extraB = 0;
-    if (!usageNotify.extraF.has_value())
-      usageNotify.extraF = 0.0f;
   }
 
   // Send general usage notification to other players (except for ice wall which has its own notification)
@@ -1796,24 +1787,18 @@ void RaceDirector::HandleUseMagicItem(
           
           // Send magic item notify for bolt hit effects (safe approach)
           protocol::AcCmdCRUseMagicItemNotify boltHitNotify{
-            .characterOid = targetRacer.oid,  // Target gets hit
-            .magicItemId = 2,  // Bolt magic item ID  
-            .unk3 = targetRacer.oid
+            .header1 = targetRacer.oid,  // Target gets hit
+            .magicType = 2,  // Bolt magic item ID  
+            .header2 = targetRacer.oid,
+            .tailParam = 1  // Cast time: 1 for bolt to hit
           };
           
-          // Populate required optional fields for bolt
-          if (!boltHitNotify.idsBlock.has_value()) {
-            auto& idsBlock = boltHitNotify.idsBlock.emplace();
-            idsBlock.ids_count = 0;
-          }
+          // For bolt (ID 2), extras are populated with the target IDs if needed
+          // Currently keeping it empty as per the original logic
           
-          // Set timing values for bolt animation
-          boltHitNotify.extraB = 1;  // Cast time: 1 for bolt to hit
-          boltHitNotify.extraF = 3.0f;  // Effect duration: 3 seconds target stays down
-          
-          spdlog::info("Sending bolt hit notification: characterOid={}, magicItemId={}, timing: {}/{}s", 
-            boltHitNotify.characterOid, boltHitNotify.magicItemId, 
-            boltHitNotify.extraB.value(), boltHitNotify.extraF.value());
+          spdlog::info("Sending bolt hit notification: header1={}, magicType={}, tailParam={}", 
+            boltHitNotify.header1, boltHitNotify.magicType, 
+            boltHitNotify.tailParam);
           
           for (const ClientId& roomClientId : roomInstance.clients)
           {
@@ -1856,8 +1841,10 @@ void RaceDirector::HandleUseMagicItem(
     spdlog::info("Ice wall used! Spawning ice wall at player {} location", clientId);
 
     protocol::AcCmdCRUseMagicItemNotify notify{
-      .characterOid = command.type_copy,
-      .magicItemId = command.mode};
+      .header1 = command.type_copy,
+      .magicType = command.mode,
+      .header2 = command.type_copy,
+      .tailParam = 0};
     // Spawn ice wall at a reasonable position (near start line like other items)
     auto& iceWall = roomInstance.tracker.AddItem();
     iceWall.itemType = 102;  // Use same type as working items (temporarily)
@@ -2039,17 +2026,14 @@ void RaceDirector::HandleChangeMagicTargetOK(
       
       // Send bolt hit as magic item usage notification
       protocol::AcCmdCRUseMagicItemNotify boltHitNotify{
-        .characterOid = command.targetOid,  // The target who gets hit
-        .magicItemId = 2,  // Bolt magic item ID  
-        .unk3 = command.targetOid
+        .header1 = command.targetOid,  // The target who gets hit
+        .magicType = 2,  // Bolt magic item ID  
+        .header2 = command.targetOid,
+        .tailParam = 0
       };
       
-      // For bolt (ID 2), we might need to populate optional fields
-      // Based on the Read method, bolt (case 0x2) expects idsBlock and extraB/extraF
-      if (!boltHitNotify.idsBlock.has_value()) {
-        auto& idsBlock = boltHitNotify.idsBlock.emplace();
-        idsBlock.ids_count = 0;  // Empty list for now
-      }
+      // For bolt (ID 2), extras can be populated with target IDs if needed
+      // Currently keeping it empty as per the original logic
       
       for (const ClientId& roomClientId : roomInstance.clients)
       {
