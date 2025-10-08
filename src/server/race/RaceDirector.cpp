@@ -1642,7 +1642,7 @@ void RaceDirector::HandleRequestMagicItem(
   // 10 - Ice wall
   protocol::AcCmdCRRequestMagicItemOK response{
     .member1 = command.member1,
-    .member2 = racer.magicItem.emplace(10),
+    .member2 = racer.magicItem.emplace(2),
     .member3 = 0
   };
 
@@ -1677,27 +1677,39 @@ void RaceDirector::HandleUseMagicItem(
   ClientId clientId,
   const protocol::AcCmdCRUseMagicItem& command)
 {
-  spdlog::info("Player {} used magic item {} (OID: {})", clientId, command.magicItemId, command.characterOid);
+  spdlog::info("Player {} used magic item {} (OID: {})", clientId, command.mode, command.type_copy);
   const auto& clientContext = _clients[clientId];
   auto& roomInstance = _roomInstances[clientContext.roomUid];
   auto& racer = roomInstance.tracker.GetRacer(clientContext.characterUid);
 
-  if (command.characterOid != racer.oid)
+  if (command.type_copy != racer.oid)
   {
     // TODO: throw? return?
     return;
   }
 
   protocol::AcCmdCRUseMagicItemOK response{
-    .characterOid = command.characterOid,
-    .magicItemId = command.magicItemId,
-    .unk3 = command.characterOid,
-    .unk4 = command.optional3.has_value() ? command.optional3.value() : 0};
+    .header1 = command.type_copy,
+    .magicType = command.mode,
+    .header2 = command.type_copy,
+    .tailParam = command.extraB.has_value() ? command.extraB.value() : 0};
 
-  if (command.optional1.has_value())
-    response.optional1 = command.optional1.value();
-  if (command.optional2.has_value())
-    response.optional2 = command.optional2.value();
+  // Copy vectors if present (modes 10/11)
+  if (command.vecA.has_value() && command.vecB.has_value())
+  {
+    response.vectors = std::make_pair(command.vecA.value(), command.vecB.value());
+  }
+  
+  // Copy extras if present
+  if (command.idsBlock.has_value())
+  {
+    const auto& idsBlock = command.idsBlock.value();
+    response.extras.resize(idsBlock.ids_count);
+    for (uint8_t i = 0; i < idsBlock.ids_count; ++i)
+    {
+      response.extras[i] = static_cast<uint16_t>(idsBlock.ids[i]);
+    }
+  }
 
   _commandServer.QueueCommand<decltype(response)>(
     clientId,
@@ -1708,39 +1720,40 @@ void RaceDirector::HandleUseMagicItem(
 
   // Notify other players that this player used their magic item
   protocol::AcCmdCRUseMagicItemNotify usageNotify{
-    .characterOid = command.characterOid,
-    .magicItemId = command.magicItemId,
-    .unk3 = command.characterOid
+    .characterOid = command.type_copy,
+    .magicItemId = command.mode,
+    .unk3 = command.type_copy
   };
 
   // Copy optional fields from the original command
-  if (command.optional1.has_value())
-    usageNotify.optional1 = command.optional1.value();
-  if (command.optional2.has_value())
-    usageNotify.optional2 = command.optional2.value();
-  if (command.optional3.has_value())
-    usageNotify.optional3 = command.optional3.value();
-  if (command.optional4.has_value())
-    usageNotify.optional4 = command.optional4.value();
+  if (command.vecA.has_value())
+    usageNotify.vecA = command.vecA.value();
+  if (command.vecB.has_value())
+    usageNotify.vecB = command.vecB.value();
+  if (command.idsBlock.has_value())
+    usageNotify.idsBlock = command.idsBlock.value();
+  if (command.extraB.has_value())
+    usageNotify.extraB = command.extraB.value();
+  if (command.extraF.has_value())
+    usageNotify.extraF = command.extraF.value();
 
   // Special handling for magic items that require optional fields
-  if (command.magicItemId == 2)  // Bolt only (ice wall handled separately)
+  if (command.mode == 2)  // Bolt only (ice wall handled separately)
   {
-    if (!usageNotify.optional2.has_value()) {
-      auto& opt2 = usageNotify.optional2.emplace();
-      opt2.size = 0;
-      opt2.list.clear();
+    if (!usageNotify.idsBlock.has_value()) {
+      auto& idsBlock = usageNotify.idsBlock.emplace();
+      idsBlock.ids_count = 0;
     }
     
-    // These items require optional3 and optional4
-    if (!usageNotify.optional3.has_value())
-      usageNotify.optional3 = 0.0f;
-    if (!usageNotify.optional4.has_value())
-      usageNotify.optional4 = 0.0f;
+    // These items require extraB and extraF
+    if (!usageNotify.extraB.has_value())
+      usageNotify.extraB = 0;
+    if (!usageNotify.extraF.has_value())
+      usageNotify.extraF = 0.0f;
   }
 
   // Send general usage notification to other players (except for ice wall which has its own notification)
-  if (command.magicItemId != 10) 
+  if (command.mode != 10) 
   {
     for (const auto& roomClientId : roomInstance.clients)
     {
@@ -1754,7 +1767,7 @@ void RaceDirector::HandleUseMagicItem(
   }
 
   // Special handling for bolt (magic item ID 2) - Auto-targeting system
-  if (command.magicItemId == 2)
+  if (command.mode == 2)
   {
     spdlog::info("Bolt used! Implementing auto-targeting system for player {}", clientId);
     
@@ -1763,7 +1776,7 @@ void RaceDirector::HandleUseMagicItem(
     for (const auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
     {
       // Skip the attacker, find first valid target
-      if (targetRacer.oid != command.characterOid && 
+      if (targetRacer.oid != command.type_copy && 
           targetRacer.state == tracker::RaceTracker::Racer::State::Racing)
       {
         targetOid = targetRacer.oid;
@@ -1789,19 +1802,18 @@ void RaceDirector::HandleUseMagicItem(
           };
           
           // Populate required optional fields for bolt
-          if (!boltHitNotify.optional2.has_value()) {
-            auto& opt2 = boltHitNotify.optional2.emplace();
-            opt2.size = 0;
-            opt2.list.clear();
+          if (!boltHitNotify.idsBlock.has_value()) {
+            auto& idsBlock = boltHitNotify.idsBlock.emplace();
+            idsBlock.ids_count = 0;
           }
           
           // Set timing values for bolt animation
-          boltHitNotify.optional3 = 1.0f;  // Cast time: 1 second for bolt to hit
-          boltHitNotify.optional4 = 3.0f;  // Effect duration: 3 seconds target stays down
+          boltHitNotify.extraB = 1;  // Cast time: 1 for bolt to hit
+          boltHitNotify.extraF = 3.0f;  // Effect duration: 3 seconds target stays down
           
-          spdlog::info("Sending bolt hit notification: characterOid={}, magicItemId={}, timing: {}s/{}s", 
+          spdlog::info("Sending bolt hit notification: characterOid={}, magicItemId={}, timing: {}/{}s", 
             boltHitNotify.characterOid, boltHitNotify.magicItemId, 
-            boltHitNotify.optional3.value(), boltHitNotify.optional4.value());
+            boltHitNotify.extraB.value(), boltHitNotify.extraF.value());
           
           for (const ClientId& roomClientId : roomInstance.clients)
           {
@@ -1839,13 +1851,13 @@ void RaceDirector::HandleUseMagicItem(
   }
   
   // Special handling for ice wall
-  else if (command.magicItemId == 10)
+  else if (command.mode == 10)
   {
     spdlog::info("Ice wall used! Spawning ice wall at player {} location", clientId);
 
     protocol::AcCmdCRUseMagicItemNotify notify{
-      .characterOid = command.characterOid,
-      .magicItemId = command.magicItemId};
+      .characterOid = command.type_copy,
+      .magicItemId = command.mode};
     // Spawn ice wall at a reasonable position (near start line like other items)
     auto& iceWall = roomInstance.tracker.AddItem();
     iceWall.itemType = 102;  // Use same type as working items (temporarily)
@@ -2039,11 +2051,10 @@ void RaceDirector::HandleChangeMagicTargetOK(
       };
       
       // For bolt (ID 2), we might need to populate optional fields
-      // Based on the Read method, bolt (case 0x2) expects optional2 and optional3/4
-      if (!boltHitNotify.optional2.has_value()) {
-        auto& opt2 = boltHitNotify.optional2.emplace();
-        opt2.size = 0;  // Empty list for now
-        opt2.list.clear();
+      // Based on the Read method, bolt (case 0x2) expects idsBlock and extraB/extraF
+      if (!boltHitNotify.idsBlock.has_value()) {
+        auto& idsBlock = boltHitNotify.idsBlock.emplace();
+        idsBlock.ids_count = 0;  // Empty list for now
       }
       
       for (const ClientId& roomClientId : roomInstance.clients)

@@ -75,6 +75,7 @@ bool IsMuted(protocol::Command id)
     || id == protocol::Command::AcCmdUserRaceUpdatePos
     || id == protocol::Command::AcCmdCRRelay
     || id == protocol::Command::AcCmdCRRelayNotify
+    || id == protocol::Command::AcCmdCRStarPointGetOK
     || id == protocol::Command::AcCmdCRRelayCommand
     || id == protocol::Command::AcCmdCRRelayCommandNotify
     || id == protocol::Command::AcCmdUserRaceActivateEvent;

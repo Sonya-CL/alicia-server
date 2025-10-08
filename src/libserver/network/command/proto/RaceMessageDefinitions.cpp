@@ -1272,29 +1272,26 @@ void AcCmdCRUseMagicItem::Read(
   AcCmdCRUseMagicItem& command,
   SourceStream& stream)
 {
-  stream.Read(command.characterOid);
-  stream.Read(command.magicItemId);
+  stream.Read(command.type_copy);
+  stream.Read(command.mode);
 
-  switch(command.magicItemId)
+  // if mode == 10 || 11, read vecA and vecB
+  if (command.mode == 10 || command.mode == 11)
   {
-    // Case 0xA and 0xB read 2x [3x floats]
-    // and then fallthrough to read uint16_t vector
-    case 0xa:
-    case 0xb:
-    {
-      auto& optional1 = command.optional1.emplace();
-      for (auto& element : optional1.member1)
-      {
-        stream.Read(element);
-      }
-      for (auto& element : optional1.member2)
-      {
-        stream.Read(element);
-      }
-      [[fallthrough]];
-    }
+    auto& vecA = command.vecA.emplace();
+    stream.Read(vecA.x).Read(vecA.y).Read(vecA.z);
+    
+    auto& vecB = command.vecB.emplace();
+    stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
+  }
+
+  // Read IDs block for specific modes
+  switch(command.mode)
+  {
     case 0x2:
     case 0x3:
+    case 0xa:
+    case 0xb:
     case 0xc:
     case 0xd:
     case 0xe:
@@ -1303,13 +1300,13 @@ void AcCmdCRUseMagicItem::Read(
     case 0x12:
     case 0x13:
     {
-      auto& optional2 = command.optional2.emplace();
-
-      stream.Read(optional2.size);
-      optional2.list.resize(optional2.size);
-      for (auto& element : optional2.list)
+      auto& idsBlock = command.idsBlock.emplace();
+      stream.Read(idsBlock.ids_count);
+      
+      // Read only ids_count elements, rest remain uninitialized
+      for (uint8_t i = 0; i < idsBlock.ids_count && i < 8; ++i)
       {
-        stream.Read(element);
+        stream.Read(idsBlock.ids[i]);
       }
       break;
     }
@@ -1319,20 +1316,22 @@ void AcCmdCRUseMagicItem::Read(
     }
   }
 
-  stream.Read(command.unk3);
-  // FIXME: wtf am i switching
-  switch (command.magicItemId)
+  stream.Read(command.extraA);
+  
+  // if mode in {2,3,14..19}, read extraB and extraF
+  switch (command.mode)
   {
     case 0x2:
     case 0x3:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
+    case 0xe:   // 14
+    case 0xf:   // 15
+    case 0x10:  // 16
+    case 0x11:  // 17
+    case 0x12:  // 18
+    case 0x13:  // 19
     {
-      stream.Read(command.optional3.emplace())
-        .Read(command.optional4.emplace());
+      stream.Read(command.extraB.emplace())
+        .Read(command.extraF.emplace());
       break;
     }
     default:
@@ -1360,30 +1359,26 @@ void AcCmdCRUseMagicItemOK::Write(
   const AcCmdCRUseMagicItemOK& command,
   SinkStream& stream)
 {
-  stream.Write(command.characterOid);
-  stream.Write(command.magicItemId);
+  stream.Write(command.header1);
+  stream.Write(command.magicType);
 
-  switch(command.magicItemId)
+  // Conditional payload (only if magicType == 10 or 11)
+  if (command.magicType == 10 || command.magicType == 11)
   {
-    // Case 0xA and 0xB write 2x [3x floats]
-    // and then fallthrough to read uint16_t vector
-    case 0xa:
-    case 0xb:
-      // TODO: is this correct?
-      // Assert that optional1 has value
-      assert(command.optional1.has_value());
+    assert(command.vectors.has_value());
+    
+    const auto& [vecA, vecB] = command.vectors.value();
+    stream.Write(vecA.x).Write(vecA.y).Write(vecA.z);
+    stream.Write(vecB.x).Write(vecB.y).Write(vecB.z);
+  }
 
-      for (auto& element : command.optional1.value().member1)
-      {
-        stream.Write(element);
-      }
-      for (auto& element : command.optional1.value().member2)
-      {
-        stream.Write(element);
-      }
-      [[fallthrough]];
+  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
+  switch(command.magicType)
+  {
     case 0x2:
     case 0x3:
+    case 0xa:
+    case 0xb:
     case 0xc:
     case 0xd:
     case 0xe:
@@ -1392,15 +1387,13 @@ void AcCmdCRUseMagicItemOK::Write(
     case 0x12:
     case 0x13:
     {
-      // TODO: is this correct?
-      // Assert that optional2 has value
-      assert(command.optional2.has_value());
-
-      // Expects vector size followed by uint16_t vector itself
-      stream.Write(command.optional2.value().size);
-      for (auto& element : command.optional2.value().list)
+      // Write count as u8, then items as u16s
+      uint8_t count = static_cast<uint8_t>(command.extras.size());
+      stream.Write(count);
+      
+      for (const auto& item : command.extras)
       {
-        stream.Write(element);
+        stream.Write(item);
       }
       break;
     }
@@ -1410,15 +1403,61 @@ void AcCmdCRUseMagicItemOK::Write(
     }
   }
 
-  stream.Write(command.unk3)
-    .Write(command.unk4);
+  // Tail (always on wire)
+  stream.Write(command.header2)
+    .Write(command.tailParam);
 }
 
 void AcCmdCRUseMagicItemOK::Read(
   AcCmdCRUseMagicItemOK& command,
   SourceStream& stream)
 {
-  throw std::runtime_error("Not implemented");
+  stream.Read(command.header1);
+  stream.Read(command.magicType);
+
+  // Conditional payload (only if magicType == 10 or 11)
+  if (command.magicType == 10 || command.magicType == 11)
+  {
+    auto& [vecA, vecB] = command.vectors.emplace();
+    stream.Read(vecA.x).Read(vecA.y).Read(vecA.z);
+    stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
+  }
+
+  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
+  switch(command.magicType)
+  {
+    case 0x2:
+    case 0x3:
+    case 0xa:
+    case 0xb:
+    case 0xc:
+    case 0xd:
+    case 0xe:
+    case 0xf:
+    case 0x11:
+    case 0x12:
+    case 0x13:
+    {
+      // Read count as u8, then items as u16s
+      uint8_t count;
+      stream.Read(count);
+      
+      command.extras.resize(count);
+      for (auto& item : command.extras)
+      {
+        stream.Read(item);
+      }
+      break;
+    }
+    default:
+    {
+      break;
+    }
+  }
+
+  // Tail (always on wire)
+  stream.Read(command.header2)
+    .Read(command.tailParam);
 }
 
 void AcCmdGameRaceItemSpawn::Write(
@@ -1540,29 +1579,26 @@ void AcCmdCRUseMagicItemNotify::Write(
   const AcCmdCRUseMagicItemNotify& command,
   SinkStream& stream)
 {
-  stream.Write(command.characterOid);
-  stream.Write(command.magicItemId);
+  stream.Write(command.header1);
+  stream.Write(command.magicType);
 
-  switch(command.magicItemId)
+  // Conditional payload (only if magicType == 10 or 11)
+  if (command.magicType == 10 || command.magicType == 11)
   {
-    // Case 0xA and 0xB write 2x [3x floats]
-    // and then fallthrough to write uint16_t vector
-    case 0xa:
-    case 0xb:
-      // Assert that optional1 has value
-      assert(command.optional1.has_value());
+    assert(command.vectors.has_value());
+    
+    const auto& [vecA, vecB] = command.vectors.value();
+    stream.Write(vecA.x).Write(vecA.y).Write(vecA.z);
+    stream.Write(vecB.x).Write(vecB.y).Write(vecB.z);
+  }
 
-      for (auto& element : command.optional1.value().member1)
-      {
-        stream.Write(element);
-      }
-      for (auto& element : command.optional1.value().member2)
-      {
-        stream.Write(element);
-      }
-      [[fallthrough]];
+  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
+  switch(command.magicType)
+  {
     case 0x2:
     case 0x3:
+    case 0xa:
+    case 0xb:
     case 0xc:
     case 0xd:
     case 0xe:
@@ -1571,14 +1607,13 @@ void AcCmdCRUseMagicItemNotify::Write(
     case 0x12:
     case 0x13:
     {
-      // Assert that optional2 has value
-      assert(command.optional2.has_value());
-
-      // Expects vector size followed by uint16_t vector itself
-      stream.Write(command.optional2.value().size);
-      for (auto& element : command.optional2.value().list)
+      // Write count as u8, then items as u16s
+      uint8_t count = static_cast<uint8_t>(command.extras.size());
+      stream.Write(count);
+      
+      for (const auto& item : command.extras)
       {
-        stream.Write(element);
+        stream.Write(item);
       }
       break;
     }
@@ -1588,31 +1623,9 @@ void AcCmdCRUseMagicItemNotify::Write(
     }
   }
 
-  // FIXME: wtf am i switching
-  switch (command.magicItemId)
-  {
-    case 0x2:
-    case 0x3:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
-    {
-      // Assert that optional3 and optional4 have values
-      assert(command.optional3.has_value());
-      assert(command.optional4.has_value());
-      stream.Write(command.optional3.value())
-        .Write(command.optional4.value());
-      break;
-    }
-    default:
-    {
-      break;
-    }
-  }
-
-  stream.Write(command.unk3);
+  // Tail (always on wire)
+  stream.Write(command.header2)
+    .Write(command.tailParam);
 }
 
 void AcCmdCRUseMagicItemNotify::Read(
@@ -1622,23 +1635,23 @@ void AcCmdCRUseMagicItemNotify::Read(
   stream.Read(command.characterOid);
   stream.Read(command.magicItemId);
 
+  // if mode == 10 || 11, read vecA and vecB
+  if (command.magicItemId == 10 || command.magicItemId == 11)
+  {
+    auto& vecA = command.vecA.emplace();
+    stream.Read(vecA.x).Read(vecA.y).Read(vecA.z);
+    
+    auto& vecB = command.vecB.emplace();
+    stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
+  }
+
+  // Read IDs block for specific modes
   switch(command.magicItemId)
   {
-    // Case 0xA and 0xB read 2x [3x floats]
-    // and then fallthrough to read uint16_t vector
-    case 0xa:
-    case 0xb:
-      for (auto& element : command.optional1.emplace().member1)
-      {
-        stream.Read(element);
-      }
-      for (auto& element : command.optional1.value().member2)
-      {
-        stream.Read(element);
-      }
-      [[fallthrough]];
     case 0x2:
     case 0x3:
+    case 0xa:
+    case 0xb:
     case 0xc:
     case 0xd:
     case 0xe:
@@ -1647,13 +1660,13 @@ void AcCmdCRUseMagicItemNotify::Read(
     case 0x12:
     case 0x13:
     {
-      auto& optional2 = command.optional2.emplace();
-
-      stream.Read(optional2.size);
-      optional2.list.resize(optional2.size);
-      for (auto& element : optional2.list)
+      auto& idsBlock = command.idsBlock.emplace();
+      stream.Read(idsBlock.ids_count);
+      
+      // Read only ids_count elements, rest remain uninitialized
+      for (uint8_t i = 0; i < idsBlock.ids_count && i < 8; ++i)
       {
-        stream.Read(element);
+        stream.Read(idsBlock.ids[i]);
       }
       break;
     }
@@ -1664,19 +1677,21 @@ void AcCmdCRUseMagicItemNotify::Read(
   }
 
   stream.Read(command.unk3);
-  // FIXME: wtf am i switching
+  
+  // if mode in {2,3,14..19}, read extraB and extraF
   switch (command.magicItemId)
   {
     case 0x2:
     case 0x3:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
+    case 0xe:   // 14
+    case 0xf:   // 15
+    case 0x10:  // 16
+    case 0x11:  // 17
+    case 0x12:  // 18
+    case 0x13:  // 19
     {
-      stream.Read(command.optional3.emplace())
-        .Read(command.optional4.emplace());
+      stream.Read(command.extraB.emplace())
+        .Read(command.extraF.emplace());
       break;
     }
     default:

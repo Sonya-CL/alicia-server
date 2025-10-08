@@ -1754,31 +1754,26 @@ struct AcCmdUserRaceActivateEvent
 
 struct AcCmdCRUseMagicItem
 {
-  // vFunc_2
-  uint16_t characterOid;
-  //! Read and switch/case depends on it
-  uint32_t magicItemId;
+  struct Vec3 { float x, y, z; };
 
-  // sub_45ed60
-  struct Optional1
+  uint16_t type_copy;   // field 1
+  uint32_t mode;        // field 2
+
+  // if mode == 10 || 11
+  std::optional<Vec3> vecA;  // field 3
+  std::optional<Vec3> vecB;  // field 4
+
+  // IDs block
+  struct IdsBlock
   {
-    std::array<float, 3> member1;
-    std::array<float, 3> member2;
+    uint8_t ids_count;    // field 5
+    std::array<int16_t, 8> ids;  // field 6 (only ids_count valid)
   };
-  std::optional<Optional1> optional1;
+  std::optional<IdsBlock> idsBlock;
 
-  // sub_4d5460
-  struct Optional2
-  {
-    uint8_t size;
-    std::vector<uint16_t> list;
-  };
-  std::optional<Optional2> optional2;
-
-  // vFunc_4 @ 0x00698540
-  uint32_t unk3;
-  std::optional<float> optional3; // cast time?
-  std::optional<float> optional4; // total cast time?
+  uint32_t extraA;      // field 7
+  std::optional<uint32_t> extraB;  // field 8 (if mode in {2,3,14..19})
+  std::optional<float> extraF;     // field 9 (same condition)
 
   static Command GetCommand()
   {
@@ -1824,17 +1819,19 @@ struct AcCmdCRUseMagicItemCancel
 
 struct AcCmdCRUseMagicItemOK
 {
-  uint16_t characterOid;
-  uint32_t magicItemId;
+  uint16_t header1;     // characterOid
+  uint32_t magicType;   // magicItemId
 
-  // sub_45ed60
-  std::optional<AcCmdCRUseMagicItem::Optional1> optional1;
-  // sub_4d5460
-  std::optional<AcCmdCRUseMagicItem::Optional2> optional2;
+  // Conditional payload (only if magicType == 10 or 11)
+  std::optional<std::pair<AcCmdCRUseMagicItem::Vec3, AcCmdCRUseMagicItem::Vec3>> vectors;
 
-  uint16_t unk3;
-  // TODO: is this correct type?
-  float unk4;
+  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
+  // Serialized as [ count: u8 ] [ items: count × u16 ]
+  std::vector<uint16_t> extras;
+
+  // Tail (always on wire)
+  uint16_t header2;
+  uint32_t tailParam;
   
   static Command GetCommand()
   {
@@ -1858,18 +1855,19 @@ struct AcCmdCRUseMagicItemOK
 
 struct AcCmdCRUseMagicItemNotify
 {
-  // Same struct as AcCmdCRUseMagicItem
-  uint16_t characterOid;
-  uint32_t magicItemId;
+  // Same structure as AcCmdCRUseMagicItemOK
+  uint16_t header1;     // characterOid
+  uint32_t magicType;   // magicItemId
 
-  // sub_45ed60
-  std::optional<AcCmdCRUseMagicItem::Optional1> optional1;
-  // sub_4d5460
-  std::optional<AcCmdCRUseMagicItem::Optional2> optional2;
+  // Conditional payload (only if magicType == 10 or 11)
+  std::optional<std::pair<AcCmdCRUseMagicItem::Vec3, AcCmdCRUseMagicItem::Vec3>> vectors;
 
-  uint32_t unk3;
-  std::optional<float> optional3; // cast time?
-  std::optional<float> optional4; // total cast time?
+  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
+  std::vector<uint16_t> extras;
+
+  // Tail (always on wire)
+  uint16_t header2;
+  uint32_t tailParam;
   
   static Command GetCommand()
   {
