@@ -1949,24 +1949,18 @@ void RaceDirector::HandleStartMagicTarget(
   ClientId clientId,
   const protocol::AcCmdCRStartMagicTarget& command)
 {
-  spdlog::info("Player {} started magic targeting with character OID {}", 
-    clientId, command.characterOid);
+  spdlog::info("Player {} started magic targeting with targetOrParam {}", 
+    clientId, command.targetOrParam);
   
   const auto& clientContext = _clients[clientId];
   auto& roomInstance = _roomInstances[clientContext.roomUid];
   auto& racer = roomInstance.tracker.GetRacer(clientContext.characterUid);
   
-  if (command.characterOid != racer.oid)
-  {
-    spdlog::warn("Character OID mismatch in HandleStartMagicTarget");
-    return;
-  }
-  
   // Set targeting state
   racer.isTargeting = true;
   racer.currentTarget = tracker::InvalidEntityOid;
   
-  spdlog::info("Character {} entered targeting mode", command.characterOid);
+  spdlog::info("Character {} (OID {}) entered targeting mode", clientContext.characterUid, racer.oid);
 }
 
 void RaceDirector::HandleChangeMagicTargetNotify(
@@ -2121,46 +2115,6 @@ void RaceDirector::HandleChangeMagicTargetCancel(
   
   spdlog::info("Character {} exited targeting mode", command.characterOid);
 }
-
-/*
-void RaceDirector::HandleActivateSkillEffect(
-  ClientId clientId,
-  const protocol::AcCmdCRActivateSkillEffect& command)
-{
-  const auto& clientContext = _clients[clientId];
-  auto& roomInstance = _roomInstances[clientContext.roomUid];
-  
-  // Convert unk2 back to float (it's 1.0f = 1065353216 as uint32)
-  float intensity = *reinterpret_cast<const float*>(&command.unk2);
-  
-  spdlog::info("HandleActivateSkillEffect: clientId={}, characterOid={}, skillId={}, unk1={}, intensity={}", 
-    clientId, command.characterOid, command.skillId, command.unk1, intensity);
-  
-  // Process the skill effect activation - give target extra gauge (Attack Compensation skill)
-  auto& targetRacer = roomInstance.tracker.GetRacer(clientContext.characterUid);
-  
-  // Apply "Attack Compensation" skill - target gets extra gauge when attacked
-  targetRacer.starPointValue += 50;  // Give 50 star points for being attacked
-  spdlog::info("Applied Attack Compensation skill: character {} gained 50 star points", command.characterOid);
-  
-  // Send skill effect response back to the requesting client
-  protocol::AcCmdUserRaceActivateEvent activateResponse{
-    .eventId = command.skillId,  // Echo back the skill ID
-    .characterOid = command.characterOid
-  };
-  
-  spdlog::info("Responding to skill activation for character {} with skillId {}", command.characterOid, command.skillId);
-  
-  // Send response back to the client who requested the skill activation
-  _commandServer.QueueCommand<decltype(activateResponse)>(
-    clientId,
-    [activateResponse]() { return activateResponse; });
-  
-  // TODO: Implement knockdown animation once we figure out the correct structure
-  // The AcCmdRCAddSkillEffect command causes disconnections
-  spdlog::info("Knockdown effect disabled to prevent disconnections");
-}
-*/
 
 
 } // namespace server

@@ -1974,7 +1974,7 @@ struct AcCmdGameRaceItemGet
 // Magic Targeting Commands for Bolt System
 struct AcCmdCRStartMagicTarget
 {
-  uint16_t characterOid;
+  uint32_t targetOrParam;  // the only field this command adds
 
   static Command GetCommand()
   {

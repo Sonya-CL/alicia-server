@@ -1527,7 +1527,7 @@ void AcCmdCRStartMagicTarget::Read(
   AcCmdCRStartMagicTarget& command,
   SourceStream& stream)
 {
-  stream.Read(command.characterOid);
+  stream.Read(command.targetOrParam);
 }
 
 void AcCmdCRChangeMagicTargetNotify::Write(
