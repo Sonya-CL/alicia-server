@@ -112,7 +112,6 @@ const std::unordered_map<Command, std::string_view> commands = {
   {Command::AcCmdCRUseItemSlotNotify, "AcCmdCRUseItemSlotNotify"},
   {Command::AcCmdRCAddSkillEffect, "AcCmdRCAddSkillEffect"},
   {Command::AcCmdRCRemoveSkillEffect, "AcCmdRCRemoveSkillEffect"},
-  {Command::AcCmdCRActivateSkillEffect, "AcCmdCRActivateSkillEffect"},
   {Command::AcCmdCRChangeUserSlotOK, "AcCmdCRChangeUserSlotOK"},
   {Command::AcCmdCRChangeUserSlotCancel, "AcCmdCRChangeUserSlotCancel"},
   {Command::AcCmdCRChangeUserSlotNotify, "AcCmdCRChangeUserSlotNotify"},

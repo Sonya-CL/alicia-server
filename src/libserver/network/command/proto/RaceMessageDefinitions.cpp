@@ -1632,21 +1632,19 @@ void AcCmdCRUseMagicItemNotify::Read(
   AcCmdCRUseMagicItemNotify& command,
   SourceStream& stream)
 {
-  stream.Read(command.characterOid);
-  stream.Read(command.magicItemId);
+  stream.Read(command.header1);
+  stream.Read(command.magicType);
 
-  // if mode == 10 || 11, read vecA and vecB
-  if (command.magicItemId == 10 || command.magicItemId == 11)
+  // Conditional payload (only if magicType == 10 or 11)
+  if (command.magicType == 10 || command.magicType == 11)
   {
-    auto& vecA = command.vecA.emplace();
+    auto& [vecA, vecB] = command.vectors.emplace();
     stream.Read(vecA.x).Read(vecA.y).Read(vecA.z);
-    
-    auto& vecB = command.vecB.emplace();
     stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
   }
 
-  // Read IDs block for specific modes
-  switch(command.magicItemId)
+  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
+  switch(command.magicType)
   {
     case 0x2:
     case 0x3:
@@ -1660,13 +1658,14 @@ void AcCmdCRUseMagicItemNotify::Read(
     case 0x12:
     case 0x13:
     {
-      auto& idsBlock = command.idsBlock.emplace();
-      stream.Read(idsBlock.ids_count);
+      // Read count as u8, then items as u16s
+      uint8_t count;
+      stream.Read(count);
       
-      // Read only ids_count elements, rest remain uninitialized
-      for (uint8_t i = 0; i < idsBlock.ids_count && i < 8; ++i)
+      command.extras.resize(count);
+      for (auto& item : command.extras)
       {
-        stream.Read(idsBlock.ids[i]);
+        stream.Read(item);
       }
       break;
     }
@@ -1676,29 +1675,9 @@ void AcCmdCRUseMagicItemNotify::Read(
     }
   }
 
-  stream.Read(command.unk3);
-  
-  // if mode in {2,3,14..19}, read extraB and extraF
-  switch (command.magicItemId)
-  {
-    case 0x2:
-    case 0x3:
-    case 0xe:   // 14
-    case 0xf:   // 15
-    case 0x10:  // 16
-    case 0x11:  // 17
-    case 0x12:  // 18
-    case 0x13:  // 19
-    {
-      stream.Read(command.extraB.emplace())
-        .Read(command.extraF.emplace());
-      break;
-    }
-    default:
-    {
-      break;
-    }
-  }
+  // Tail (always on wire)
+  stream.Read(command.header2)
+    .Read(command.tailParam);
 }
 
 void AcCmdRCTriggerActivate::Write(
@@ -1719,26 +1698,6 @@ void AcCmdRCTriggerActivate::Read(
     .Read(command.triggerType)
     .Read(command.triggerValue)
     .Read(command.duration);
-}
-
-void AcCmdCRActivateSkillEffect::Write(
-  const AcCmdCRActivateSkillEffect& command,
-  SinkStream& stream)
-{
-  stream.Write(command.characterOid)
-    .Write(command.skillId)
-    .Write(command.unk1)
-    .Write(command.unk2);
-}
-
-void AcCmdCRActivateSkillEffect::Read(
-  AcCmdCRActivateSkillEffect& command,
-  SourceStream& stream)
-{
-  stream.Read(command.characterOid)
-    .Read(command.skillId)
-    .Read(command.unk1)
-    .Read(command.unk2);
 }
 
 void AcCmdRCAddSkillEffect::Write(
