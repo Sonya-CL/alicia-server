@@ -1819,19 +1819,30 @@ struct AcCmdCRUseMagicItemCancel
 
 struct AcCmdCRUseMagicItemOK
 {
-  uint16_t header1;     // characterOid
-  uint32_t magicType;   // magicItemId
-
-  // Conditional payload (only if magicType == 10 or 11)
-  std::optional<std::pair<AcCmdCRUseMagicItem::Vec3, AcCmdCRUseMagicItem::Vec3>> vectors;
-
-  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
-  // Serialized as [ count: u8 ] [ items: count × u16 ]
-  std::vector<uint16_t> extras;
-
-  // Tail (always on wire)
-  uint16_t header2;
-  uint32_t tailParam;
+  // Wire format (vftable not sent over network)
+  // Offset 0x04 in client memory
+  uint16_t magicType;       // Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
+  uint16_t pad06;           // Alignment padding
+  
+  // Offset 0x08 - This is what client switch() uses!
+  int32_t  subtypeOrCode;   // Subtype or code parameter
+  
+  // Offset 0x0C-0x1C - Unknown fields (5 × int32)
+  int32_t  unk0C;
+  int32_t  unk10;
+  int32_t  unk14;
+  int32_t  unk18;
+  int32_t  unk1C;
+  
+  // Offset 0x20-0x34 - Vectors (always present in memory, conditionally filled for magicType 10/11)
+  struct Vec3 { float x, y, z; };
+  Vec3 vecA;                // Position A
+  Vec3 vecB;                // Position B
+  
+  // Offset 0x38-0x3C - Tail fields
+  uint16_t tailU16;
+  uint16_t pad3A;           // Alignment padding
+  uint32_t tailU32;
   
   static Command GetCommand()
   {
@@ -1856,18 +1867,27 @@ struct AcCmdCRUseMagicItemOK
 struct AcCmdCRUseMagicItemNotify
 {
   // Same structure as AcCmdCRUseMagicItemOK
-  uint16_t header1;     // characterOid
-  uint32_t magicType;   // magicItemId
-
-  // Conditional payload (only if magicType == 10 or 11)
-  std::optional<std::pair<AcCmdCRUseMagicItem::Vec3, AcCmdCRUseMagicItem::Vec3>> vectors;
-
-  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
-  std::vector<uint16_t> extras;
-
-  // Tail (always on wire)
-  uint16_t header2;
-  uint32_t tailParam;
+  uint16_t magicType;       // Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
+  uint16_t pad06;           // Alignment padding
+  
+  int32_t  subtypeOrCode;   // Subtype or code parameter
+  
+  // Unknown fields (5 × int32)
+  int32_t  unk0C;
+  int32_t  unk10;
+  int32_t  unk14;
+  int32_t  unk18;
+  int32_t  unk1C;
+  
+  // Vectors (always present, conditionally filled for magicType 10/11)
+  struct Vec3 { float x, y, z; };
+  Vec3 vecA;
+  Vec3 vecB;
+  
+  // Tail fields
+  uint16_t tailU16;
+  uint16_t pad3A;           // Alignment padding
+  uint32_t tailU32;
   
   static Command GetCommand()
   {

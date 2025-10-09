@@ -1359,105 +1359,52 @@ void AcCmdCRUseMagicItemOK::Write(
   const AcCmdCRUseMagicItemOK& command,
   SinkStream& stream)
 {
-  stream.Write(command.header1);
+  // Write all fields in order matching client memory layout
   stream.Write(command.magicType);
-
-  // Conditional payload (only if magicType == 10 or 11)
-  if (command.magicType == 10 || command.magicType == 11)
-  {
-    assert(command.vectors.has_value());
-    
-    const auto& [vecA, vecB] = command.vectors.value();
-    stream.Write(vecA.x).Write(vecA.y).Write(vecA.z);
-    stream.Write(vecB.x).Write(vecB.y).Write(vecB.z);
-  }
-
-  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
-  switch(command.magicType)
-  {
-    case 0x2:
-    case 0x3:
-    case 0xa:
-    case 0xb:
-    case 0xc:
-    case 0xd:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
-    {
-      // Write count as u8, then items as u16s
-      uint8_t count = static_cast<uint8_t>(command.extras.size());
-      stream.Write(count);
-      
-      for (const auto& item : command.extras)
-      {
-        stream.Write(item);
-      }
-      break;
-    }
-    default:
-    {
-      break;
-    }
-  }
-
-  // Tail (always on wire)
-  stream.Write(command.header2)
-    .Write(command.tailParam);
+  stream.Write(command.pad06);
+  stream.Write(command.subtypeOrCode);
+  
+  // Write unknown fields
+  stream.Write(command.unk0C);
+  stream.Write(command.unk10);
+  stream.Write(command.unk14);
+  stream.Write(command.unk18);
+  stream.Write(command.unk1C);
+  
+  // Write vectors (always present, may be zeroed)
+  stream.Write(command.vecA.x).Write(command.vecA.y).Write(command.vecA.z);
+  stream.Write(command.vecB.x).Write(command.vecB.y).Write(command.vecB.z);
+  
+  // Write tail fields
+  stream.Write(command.tailU16);
+  stream.Write(command.pad3A);
+  stream.Write(command.tailU32);
 }
 
 void AcCmdCRUseMagicItemOK::Read(
   AcCmdCRUseMagicItemOK& command,
   SourceStream& stream)
 {
-  stream.Read(command.header1);
+  // Read all fields in order matching client memory layout
   stream.Read(command.magicType);
-
-  // Conditional payload (only if magicType == 10 or 11)
-  if (command.magicType == 10 || command.magicType == 11)
-  {
-    auto& [vecA, vecB] = command.vectors.emplace();
-    stream.Read(vecA.x).Read(vecA.y).Read(vecA.z);
-    stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
-  }
-
-  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
-  switch(command.magicType)
-  {
-    case 0x2:
-    case 0x3:
-    case 0xa:
-    case 0xb:
-    case 0xc:
-    case 0xd:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
-    {
-      // Read count as u8, then items as u16s
-      uint8_t count;
-      stream.Read(count);
-      
-      command.extras.resize(count);
-      for (auto& item : command.extras)
-      {
-        stream.Read(item);
-      }
-      break;
-    }
-    default:
-    {
-      break;
-    }
-  }
-
-  // Tail (always on wire)
-  stream.Read(command.header2)
-    .Read(command.tailParam);
+  stream.Read(command.pad06);
+  stream.Read(command.subtypeOrCode);
+  
+  // Read unknown fields
+  stream.Read(command.unk0C);
+  stream.Read(command.unk10);
+  stream.Read(command.unk14);
+  stream.Read(command.unk18);
+  stream.Read(command.unk1C);
+  
+  // Read vectors (always present)
+  stream.Read(command.vecA.x).Read(command.vecA.y).Read(command.vecA.z);
+  stream.Read(command.vecB.x).Read(command.vecB.y).Read(command.vecB.z);
+  
+  // Read tail fields
+  stream.Read(command.tailU16);
+  stream.Read(command.pad3A);
+  stream.Read(command.tailU32);
 }
 
 void AcCmdGameRaceItemSpawn::Write(
@@ -1579,105 +1526,52 @@ void AcCmdCRUseMagicItemNotify::Write(
   const AcCmdCRUseMagicItemNotify& command,
   SinkStream& stream)
 {
-  stream.Write(command.header1);
+  // Write all fields in order matching client memory layout
   stream.Write(command.magicType);
-
-  // Conditional payload (only if magicType == 10 or 11)
-  if (command.magicType == 10 || command.magicType == 11)
-  {
-    assert(command.vectors.has_value());
-    
-    const auto& [vecA, vecB] = command.vectors.value();
-    stream.Write(vecA.x).Write(vecA.y).Write(vecA.z);
-    stream.Write(vecB.x).Write(vecB.y).Write(vecB.z);
-  }
-
-  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
-  switch(command.magicType)
-  {
-    case 0x2:
-    case 0x3:
-    case 0xa:
-    case 0xb:
-    case 0xc:
-    case 0xd:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
-    {
-      // Write count as u8, then items as u16s
-      uint8_t count = static_cast<uint8_t>(command.extras.size());
-      stream.Write(count);
-      
-      for (const auto& item : command.extras)
-      {
-        stream.Write(item);
-      }
-      break;
-    }
-    default:
-    {
-      break;
-    }
-  }
-
-  // Tail (always on wire)
-  stream.Write(command.header2)
-    .Write(command.tailParam);
+  stream.Write(command.pad06);
+  stream.Write(command.subtypeOrCode);
+  
+  // Write unknown fields
+  stream.Write(command.unk0C);
+  stream.Write(command.unk10);
+  stream.Write(command.unk14);
+  stream.Write(command.unk18);
+  stream.Write(command.unk1C);
+  
+  // Write vectors (always present, may be zeroed)
+  stream.Write(command.vecA.x).Write(command.vecA.y).Write(command.vecA.z);
+  stream.Write(command.vecB.x).Write(command.vecB.y).Write(command.vecB.z);
+  
+  // Write tail fields
+  stream.Write(command.tailU16);
+  stream.Write(command.pad3A);
+  stream.Write(command.tailU32);
 }
 
 void AcCmdCRUseMagicItemNotify::Read(
   AcCmdCRUseMagicItemNotify& command,
   SourceStream& stream)
 {
-  stream.Read(command.header1);
+  // Read all fields in order matching client memory layout
   stream.Read(command.magicType);
-
-  // Conditional payload (only if magicType == 10 or 11)
-  if (command.magicType == 10 || command.magicType == 11)
-  {
-    auto& [vecA, vecB] = command.vectors.emplace();
-    stream.Read(vecA.x).Read(vecA.y).Read(vecA.z);
-    stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
-  }
-
-  // Variable-length block (for cases 2,3,0x0C..0x13, and also after 10/11)
-  switch(command.magicType)
-  {
-    case 0x2:
-    case 0x3:
-    case 0xa:
-    case 0xb:
-    case 0xc:
-    case 0xd:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
-    {
-      // Read count as u8, then items as u16s
-      uint8_t count;
-      stream.Read(count);
-      
-      command.extras.resize(count);
-      for (auto& item : command.extras)
-      {
-        stream.Read(item);
-      }
-      break;
-    }
-    default:
-    {
-      break;
-    }
-  }
-
-  // Tail (always on wire)
-  stream.Read(command.header2)
-    .Read(command.tailParam);
+  stream.Read(command.pad06);
+  stream.Read(command.subtypeOrCode);
+  
+  // Read unknown fields
+  stream.Read(command.unk0C);
+  stream.Read(command.unk10);
+  stream.Read(command.unk14);
+  stream.Read(command.unk18);
+  stream.Read(command.unk1C);
+  
+  // Read vectors (always present)
+  stream.Read(command.vecA.x).Read(command.vecA.y).Read(command.vecA.z);
+  stream.Read(command.vecB.x).Read(command.vecB.y).Read(command.vecB.z);
+  
+  // Read tail fields
+  stream.Read(command.tailU16);
+  stream.Read(command.pad3A);
+  stream.Read(command.tailU32);
 }
 
 void AcCmdRCTriggerActivate::Write(
