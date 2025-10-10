@@ -1688,34 +1688,42 @@ void RaceDirector::HandleUseMagicItem(
     return;
   }
 
+  // Send OK response (bolt included - client sends target in original command)
   protocol::AcCmdCRUseMagicItemOK response{};
   response.magicType = static_cast<uint16_t>(command.mode);
   response.pad06 = 0;
-  response.subtypeOrCode = static_cast<int32_t>(command.type_copy);  // Character OID
+  response.actorOid = static_cast<int32_t>(command.type_copy);  // Caster OID
+  response.mode = static_cast<int32_t>(command.mode);
   
-  // Initialize unknown fields to zero
-  response.unk0C = 0;
-  response.unk10 = 0;
-  response.unk14 = 0;
-  response.unk18 = 0;
-  response.unk1C = 0;
+  // Include target IDs if present
+  response.ids.fill(0);
+  response.idsCount = 0;
+  if (command.idsBlock.has_value())
+  {
+    const auto& idsBlock = command.idsBlock.value();
+    response.idsCount = std::min(static_cast<uint32_t>(idsBlock.ids_count), 8u);
+    for (uint32_t i = 0; i < response.idsCount; ++i)
+    {
+      response.ids[i] = static_cast<uint16_t>(idsBlock.ids[i]);
+    }
+  }
   
   // Copy vectors if present (modes 10/11), otherwise zero
   if (command.vecA.has_value() && command.vecB.has_value())
   {
-    response.vecA = {command.vecA->x, command.vecA->y, command.vecA->z};
-    response.vecB = {command.vecB->x, command.vecB->y, command.vecB->z};
+    response.pos = {command.vecA->x, command.vecA->y, command.vecA->z};
+    response.dir = {command.vecB->x, command.vecB->y, command.vecB->z};
   }
   else
   {
-    response.vecA = {0.0f, 0.0f, 0.0f};
-    response.vecB = {0.0f, 0.0f, 0.0f};
+    response.pos = {0.0f, 0.0f, 0.0f};
+    response.dir = {0.0f, 0.0f, 0.0f};
   }
   
   // Tail fields
-  response.tailU16 = static_cast<uint16_t>(command.type_copy);  // Character OID again
-  response.pad3A = 0;
-  response.tailU32 = command.extraB.has_value() ? command.extraB.value() : 0;
+  response.extraShort = static_cast<uint16_t>(command.type_copy);  // Character OID
+  response.pad3E = 0;
+  response.extraParam = command.extraB.has_value() ? command.extraB.value() : 0;
 
   _commandServer.QueueCommand<decltype(response)>(
     clientId,
@@ -1724,164 +1732,108 @@ void RaceDirector::HandleUseMagicItem(
       return response;
     });
 
-  // Notify other players that this player used their magic item
+  // Notify other players AND apply effects
   protocol::AcCmdCRUseMagicItemNotify usageNotify{};
   usageNotify.magicType = static_cast<uint16_t>(command.mode);
   usageNotify.pad06 = 0;
-  usageNotify.subtypeOrCode = static_cast<int32_t>(command.type_copy);  // Character OID
+  usageNotify.actorOid = static_cast<int32_t>(command.type_copy);  // Caster OID
+  usageNotify.mode = static_cast<int32_t>(command.mode);
   
-  // Initialize unknown fields to zero
-  usageNotify.unk0C = 0;
-  usageNotify.unk10 = 0;
-  usageNotify.unk14 = 0;
-  usageNotify.unk18 = 0;
-  usageNotify.unk1C = 0;
+  // Include target IDs from command
+  usageNotify.ids.fill(0);
+  usageNotify.idsCount = 0;
+  if (command.idsBlock.has_value())
+  {
+    const auto& idsBlock = command.idsBlock.value();
+    usageNotify.idsCount = std::min(static_cast<uint32_t>(idsBlock.ids_count), 8u);
+    for (uint32_t i = 0; i < usageNotify.idsCount; ++i)
+    {
+      usageNotify.ids[i] = static_cast<uint16_t>(idsBlock.ids[i]);
+    }
+    
+    // For bolt with targets, apply effects server-side
+    if (command.mode == 2 && usageNotify.idsCount > 0)
+    {
+      uint16_t targetOid = usageNotify.ids[0];
+      spdlog::info("Bolt fired at target OID {}", targetOid);
+      
+      // Remove target's magic item if they have one
+      for (auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
+      {
+        if (targetRacer.oid == targetOid && targetRacer.magicItem.has_value())
+        {
+          spdlog::info("Target {} lost magic item {}", targetOid, targetRacer.magicItem.value());
+          targetRacer.magicItem.reset();
+          break;
+        }
+      }
+      
+      // Consume attacker's bolt
+      racer.magicItem.reset();
+      spdlog::info("Attacker {} consumed bolt", command.type_copy);
+    }
+  }
   
   // Copy vectors if present (modes 10/11), otherwise zero
   if (command.vecA.has_value() && command.vecB.has_value())
   {
-    usageNotify.vecA = {command.vecA->x, command.vecA->y, command.vecA->z};
-    usageNotify.vecB = {command.vecB->x, command.vecB->y, command.vecB->z};
+    usageNotify.pos = {command.vecA->x, command.vecA->y, command.vecA->z};
+    usageNotify.dir = {command.vecB->x, command.vecB->y, command.vecB->z};
   }
   else
   {
-    usageNotify.vecA = {0.0f, 0.0f, 0.0f};
-    usageNotify.vecB = {0.0f, 0.0f, 0.0f};
+    usageNotify.pos = {0.0f, 0.0f, 0.0f};
+    usageNotify.dir = {0.0f, 0.0f, 0.0f};
   }
   
   // Tail fields
-  usageNotify.tailU16 = static_cast<uint16_t>(command.type_copy);  // Character OID again
-  usageNotify.pad3A = 0;
-  usageNotify.tailU32 = command.extraB.has_value() ? command.extraB.value() : 0;
+  usageNotify.extraShort = static_cast<uint16_t>(command.type_copy);
+  usageNotify.pad3E = 0;
+  usageNotify.extraParam = command.extraB.has_value() ? command.extraB.value() : 0;
 
-  // Send general usage notification to other players (except for ice wall which has its own notification)
+  // Send usage notification to ALL players (including attacker for bolt)
+  // Skip only for ice wall (has its own handling)
   if (command.mode != 10) 
   {
     for (const auto& roomClientId : roomInstance.clients)
     {
-      if (roomClientId == clientId)
-        continue;
-      
       _commandServer.QueueCommand<decltype(usageNotify)>(
         roomClientId,
         [usageNotify]() { return usageNotify; });
     }
   }
 
-  // Special handling for bolt (magic item ID 2) - Auto-targeting system
-  if (command.mode == 2)
-  {
-    spdlog::info("Bolt used! Implementing auto-targeting system for player {}", clientId);
-    
-    // Find a target automatically (first other player in the room)
-    tracker::Oid targetOid = tracker::InvalidEntityOid;
-    for (const auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
-    {
-      // Skip the attacker, find first valid target
-      if (targetRacer.oid != command.type_copy && 
-          targetRacer.state == tracker::RaceTracker::Racer::State::Racing)
-      {
-        targetOid = targetRacer.oid;
-        spdlog::info("Auto-selected target: OID {}", targetOid);
-        break;
-      }
-    }
-    
-    if (targetOid != tracker::InvalidEntityOid)
-    {
-      // Apply bolt hit effects to the target
-      for (auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
-      {
-        if (targetRacer.oid == targetOid)
-        {
-          spdlog::info("Applying bolt effects to target racer {} (OID: {})", targetUid, targetRacer.oid);
-          
-          // Send magic item notify for bolt hit effects
-          protocol::AcCmdCRUseMagicItemNotify boltHitNotify{};
-          boltHitNotify.magicType = 2;  // Bolt magic item ID
-          boltHitNotify.pad06 = 0;
-          boltHitNotify.subtypeOrCode = static_cast<int32_t>(targetRacer.oid);  // Target gets hit
-          
-          // Initialize unknown fields to zero
-          boltHitNotify.unk0C = 0;
-          boltHitNotify.unk10 = 0;
-          boltHitNotify.unk14 = 0;
-          boltHitNotify.unk18 = 0;
-          boltHitNotify.unk1C = 0;
-          
-          // Zero vectors (not used for bolt)
-          boltHitNotify.vecA = {0.0f, 0.0f, 0.0f};
-          boltHitNotify.vecB = {0.0f, 0.0f, 0.0f};
-          
-          // Tail fields
-          boltHitNotify.tailU16 = static_cast<uint16_t>(targetRacer.oid);
-          boltHitNotify.pad3A = 0;
-          boltHitNotify.tailU32 = 1;  // Cast time: 1 for bolt to hit
-          
-          spdlog::info("Sending bolt hit notification: subtypeOrCode={}, magicType={}, tailU32={}", 
-            boltHitNotify.subtypeOrCode, boltHitNotify.magicType, 
-            boltHitNotify.tailU32);
-          
-          for (const ClientId& roomClientId : roomInstance.clients)
-          {
-            spdlog::info("Sending bolt hit notification to client {}", roomClientId);
-            _commandServer.QueueCommand<decltype(boltHitNotify)>(
-              roomClientId, 
-              [boltHitNotify]() { return boltHitNotify; });
-          }
-          
-          // Effect 1: Target loses their current magic item
-          if (targetRacer.magicItem.has_value())
-          {
-            uint32_t lostItemId = targetRacer.magicItem.value();
-            spdlog::info("Target racer {} lost magic item {}", targetRacer.oid, lostItemId);
-            targetRacer.magicItem.reset();
-            
-            // TODO: Add proper magic expire notification once we confirm bolt hit works
-            spdlog::info("Target lost magic item {} (server-side only for now)", lostItemId);
-            
-            // TODO: Add client notifications once bolt hit animation is working
-          }
-          else
-          {
-            spdlog::info("Target racer {} has no magic item to lose", targetRacer.oid);
-          }
-          
-          break;
-        }
-      }
-    }
-    else
-    {
-      spdlog::info("No valid target found for bolt");
-    }
-  }
-  
   // Special handling for ice wall
-  else if (command.mode == 10)
+  if (command.mode == 10)
   {
     spdlog::info("Ice wall used! Spawning ice wall at player {} location", clientId);
 
     protocol::AcCmdCRUseMagicItemNotify notify{};
     notify.magicType = static_cast<uint16_t>(command.mode);
     notify.pad06 = 0;
-    notify.subtypeOrCode = static_cast<int32_t>(command.type_copy);  // Character OID
+    notify.actorOid = static_cast<int32_t>(command.type_copy);  // Caster OID
+    notify.mode = static_cast<int32_t>(command.mode);
     
-    // Initialize unknown fields to zero
-    notify.unk0C = 0;
-    notify.unk10 = 0;
-    notify.unk14 = 0;
-    notify.unk18 = 0;
-    notify.unk1C = 0;
+    // No target IDs for ice wall
+    notify.ids.fill(0);
+    notify.idsCount = 0;
     
-    // Zero vectors (will be filled if needed)
-    notify.vecA = {0.0f, 0.0f, 0.0f};
-    notify.vecB = {0.0f, 0.0f, 0.0f};
+    // Set position vectors for ice wall (mode 10/11)
+    if (command.vecA.has_value() && command.vecB.has_value())
+    {
+      notify.pos = {command.vecA->x, command.vecA->y, command.vecA->z};
+      notify.dir = {command.vecB->x, command.vecB->y, command.vecB->z};
+    }
+    else
+    {
+      notify.pos = {0.0f, 0.0f, 0.0f};
+      notify.dir = {0.0f, 0.0f, 0.0f};
+    }
     
     // Tail fields
-    notify.tailU16 = static_cast<uint16_t>(command.type_copy);
-    notify.pad3A = 0;
-    notify.tailU32 = 0;
+    notify.extraShort = static_cast<uint16_t>(command.type_copy);
+    notify.pad3E = 0;
+    notify.extraParam = 0;
     // Spawn ice wall at a reasonable position (near start line like other items)
     auto& iceWall = roomInstance.tracker.AddItem();
     iceWall.itemType = 102;  // Use same type as working items (temporarily)
@@ -2065,23 +2017,22 @@ void RaceDirector::HandleChangeMagicTargetOK(
       protocol::AcCmdCRUseMagicItemNotify boltHitNotify{};
       boltHitNotify.magicType = 2;  // Bolt magic item ID
       boltHitNotify.pad06 = 0;
-      boltHitNotify.subtypeOrCode = static_cast<int32_t>(command.targetOid);  // Target gets hit
+      boltHitNotify.actorOid = static_cast<int32_t>(command.characterOid);  // Caster/attacker OID
+      boltHitNotify.mode = 2;  // Bolt mode
       
-      // Initialize unknown fields to zero
-      boltHitNotify.unk0C = 0;
-      boltHitNotify.unk10 = 0;
-      boltHitNotify.unk14 = 0;
-      boltHitNotify.unk18 = 0;
-      boltHitNotify.unk1C = 0;
+      // CRITICAL: Include target OID in IDs array so client can apply knockdown
+      boltHitNotify.ids.fill(0);
+      boltHitNotify.ids[0] = static_cast<uint16_t>(command.targetOid);  // Target OID
+      boltHitNotify.idsCount = 1;  // One target
       
       // Zero vectors (not used for bolt)
-      boltHitNotify.vecA = {0.0f, 0.0f, 0.0f};
-      boltHitNotify.vecB = {0.0f, 0.0f, 0.0f};
+      boltHitNotify.pos = {0.0f, 0.0f, 0.0f};
+      boltHitNotify.dir = {0.0f, 0.0f, 0.0f};
       
       // Tail fields
-      boltHitNotify.tailU16 = static_cast<uint16_t>(command.targetOid);
-      boltHitNotify.pad3A = 0;
-      boltHitNotify.tailU32 = 0;
+      boltHitNotify.extraShort = static_cast<uint16_t>(command.targetOid);  // Target OID
+      boltHitNotify.pad3E = 0;
+      boltHitNotify.extraParam = 0;
       
       for (const ClientId& roomClientId : roomInstance.clients)
       {

@@ -1359,52 +1359,58 @@ void AcCmdCRUseMagicItemOK::Write(
   const AcCmdCRUseMagicItemOK& command,
   SinkStream& stream)
 {
-  // Write all fields in order matching client memory layout
+  // Write header
   stream.Write(command.magicType);
   stream.Write(command.pad06);
-  stream.Write(command.subtypeOrCode);
+  stream.Write(command.actorOid);
+  stream.Write(command.mode);
   
-  // Write unknown fields
-  stream.Write(command.unk0C);
-  stream.Write(command.unk10);
-  stream.Write(command.unk14);
-  stream.Write(command.unk18);
-  stream.Write(command.unk1C);
+  // Write FULL IDs array (8 × uint16 = 16 bytes), not variable-length
+  for (uint8_t i = 0; i < 8; ++i)
+  {
+    stream.Write(command.ids[i]);
+  }
   
-  // Write vectors (always present, may be zeroed)
-  stream.Write(command.vecA.x).Write(command.vecA.y).Write(command.vecA.z);
-  stream.Write(command.vecB.x).Write(command.vecB.y).Write(command.vecB.z);
+  // Write IDs count (int32 at +0x20)
+  stream.Write(command.idsCount);
+  
+  // Write vectors (for mode 10/11, otherwise may be zeroed)
+  stream.Write(command.pos.x).Write(command.pos.y).Write(command.pos.z);
+  stream.Write(command.dir.x).Write(command.dir.y).Write(command.dir.z);
   
   // Write tail fields
-  stream.Write(command.tailU16);
-  stream.Write(command.pad3A);
-  stream.Write(command.tailU32);
+  stream.Write(command.extraShort);
+  stream.Write(command.pad3E);
+  stream.Write(command.extraParam);
 }
 
 void AcCmdCRUseMagicItemOK::Read(
   AcCmdCRUseMagicItemOK& command,
   SourceStream& stream)
 {
-  // Read all fields in order matching client memory layout
+  // Read header
   stream.Read(command.magicType);
   stream.Read(command.pad06);
-  stream.Read(command.subtypeOrCode);
+  stream.Read(command.actorOid);
+  stream.Read(command.mode);
   
-  // Read unknown fields
-  stream.Read(command.unk0C);
-  stream.Read(command.unk10);
-  stream.Read(command.unk14);
-  stream.Read(command.unk18);
-  stream.Read(command.unk1C);
+  // Read FULL IDs array (8 × uint16)
+  for (uint8_t i = 0; i < 8; ++i)
+  {
+    stream.Read(command.ids[i]);
+  }
   
-  // Read vectors (always present)
-  stream.Read(command.vecA.x).Read(command.vecA.y).Read(command.vecA.z);
-  stream.Read(command.vecB.x).Read(command.vecB.y).Read(command.vecB.z);
+  // Read IDs count
+  stream.Read(command.idsCount);
+  
+  // Read vectors
+  stream.Read(command.pos.x).Read(command.pos.y).Read(command.pos.z);
+  stream.Read(command.dir.x).Read(command.dir.y).Read(command.dir.z);
   
   // Read tail fields
-  stream.Read(command.tailU16);
-  stream.Read(command.pad3A);
-  stream.Read(command.tailU32);
+  stream.Read(command.extraShort);
+  stream.Read(command.pad3E);
+  stream.Read(command.extraParam);
 }
 
 void AcCmdGameRaceItemSpawn::Write(
@@ -1526,52 +1532,58 @@ void AcCmdCRUseMagicItemNotify::Write(
   const AcCmdCRUseMagicItemNotify& command,
   SinkStream& stream)
 {
-  // Write all fields in order matching client memory layout
+  // Write header
   stream.Write(command.magicType);
   stream.Write(command.pad06);
-  stream.Write(command.subtypeOrCode);
+  stream.Write(command.actorOid);
+  stream.Write(command.mode);
   
-  // Write unknown fields
-  stream.Write(command.unk0C);
-  stream.Write(command.unk10);
-  stream.Write(command.unk14);
-  stream.Write(command.unk18);
-  stream.Write(command.unk1C);
+  // Write FULL IDs array (8 × uint16 = 16 bytes), not variable-length
+  for (uint8_t i = 0; i < 8; ++i)
+  {
+    stream.Write(command.ids[i]);
+  }
   
-  // Write vectors (always present, may be zeroed)
-  stream.Write(command.vecA.x).Write(command.vecA.y).Write(command.vecA.z);
-  stream.Write(command.vecB.x).Write(command.vecB.y).Write(command.vecB.z);
+  // Write IDs count (int32 at +0x20)
+  stream.Write(command.idsCount);
+  
+  // Write vectors
+  stream.Write(command.pos.x).Write(command.pos.y).Write(command.pos.z);
+  stream.Write(command.dir.x).Write(command.dir.y).Write(command.dir.z);
   
   // Write tail fields
-  stream.Write(command.tailU16);
-  stream.Write(command.pad3A);
-  stream.Write(command.tailU32);
+  stream.Write(command.extraShort);
+  stream.Write(command.pad3E);
+  stream.Write(command.extraParam);
 }
 
 void AcCmdCRUseMagicItemNotify::Read(
   AcCmdCRUseMagicItemNotify& command,
   SourceStream& stream)
 {
-  // Read all fields in order matching client memory layout
+  // Read header
   stream.Read(command.magicType);
   stream.Read(command.pad06);
-  stream.Read(command.subtypeOrCode);
+  stream.Read(command.actorOid);
+  stream.Read(command.mode);
   
-  // Read unknown fields
-  stream.Read(command.unk0C);
-  stream.Read(command.unk10);
-  stream.Read(command.unk14);
-  stream.Read(command.unk18);
-  stream.Read(command.unk1C);
+  // Read FULL IDs array (8 × uint16)
+  for (uint8_t i = 0; i < 8; ++i)
+  {
+    stream.Read(command.ids[i]);
+  }
   
-  // Read vectors (always present)
-  stream.Read(command.vecA.x).Read(command.vecA.y).Read(command.vecA.z);
-  stream.Read(command.vecB.x).Read(command.vecB.y).Read(command.vecB.z);
+  // Read IDs count
+  stream.Read(command.idsCount);
+  
+  // Read vectors
+  stream.Read(command.pos.x).Read(command.pos.y).Read(command.pos.z);
+  stream.Read(command.dir.x).Read(command.dir.y).Read(command.dir.z);
   
   // Read tail fields
-  stream.Read(command.tailU16);
-  stream.Read(command.pad3A);
-  stream.Read(command.tailU32);
+  stream.Read(command.extraShort);
+  stream.Read(command.pad3E);
+  stream.Read(command.extraParam);
 }
 
 void AcCmdRCTriggerActivate::Write(

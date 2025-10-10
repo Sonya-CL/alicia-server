@@ -1817,32 +1817,35 @@ struct AcCmdCRUseMagicItemCancel
     SourceStream& stream);
 };
 
+// Client handler decompilation shows:
+// - actorOid at +0x08 (uint16)
+// - mode at +0x0C (int32)
+// - IDs vector at +0x10 (variable-length uint16 array, count at +0x20)
+// - extraShort at +0x3C (uint16)
+// - extraParam (uint32)
+// - For mode 10/11: pos and dir (Vec3 each)
 struct AcCmdCRUseMagicItemOK
 {
-  // Wire format (vftable not sent over network)
-  // Offset 0x04 in client memory
-  uint16_t magicType;       // Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
-  uint16_t pad06;           // Alignment padding
+  uint16_t magicType;       // +0x04: Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
+  uint16_t pad06;           // +0x06: Alignment padding
   
-  // Offset 0x08 - This is what client switch() uses!
-  int32_t  subtypeOrCode;   // Subtype or code parameter
+  int32_t  actorOid;        // +0x08: Actor/caster OID (client reads as uint16 but stored as int32)
+  int32_t  mode;            // +0x0C: Mode/subtype (same as magicType for most cases)
   
-  // Offset 0x0C-0x1C - Unknown fields (5 × int32)
-  int32_t  unk0C;
-  int32_t  unk10;
-  int32_t  unk14;
-  int32_t  unk18;
-  int32_t  unk1C;
+  // Variable-length IDs array (target OIDs for bolt, effect IDs for other magic)
+  // Serialized as: [count: u8][count × uint16]
+  std::array<uint16_t, 8> ids;  // +0x10: IDs array (in memory)
+  uint32_t idsCount;            // +0x20: Count of valid IDs (only low 8 bits serialized)
   
-  // Offset 0x20-0x34 - Vectors (always present in memory, conditionally filled for magicType 10/11)
+  // Vectors for mode 10/11 (pos and dir)
   struct Vec3 { float x, y, z; };
-  Vec3 vecA;                // Position A
-  Vec3 vecB;                // Position B
+  Vec3 pos;                 // +0x24: Position vector (for ice wall)
+  Vec3 dir;                 // +0x30: Direction vector (for ice wall)
   
-  // Offset 0x38-0x3C - Tail fields
-  uint16_t tailU16;
-  uint16_t pad3A;           // Alignment padding
-  uint32_t tailU32;
+  // Tail fields
+  uint16_t extraShort;      // +0x3C: Extra parameter (client reads this)
+  uint16_t pad3E;           // +0x3E: Padding
+  uint32_t extraParam;      // +0x40: Extra parameter (duration, object ID, etc.)
   
   static Command GetCommand()
   {
@@ -1864,30 +1867,28 @@ struct AcCmdCRUseMagicItemOK
     SourceStream& stream);
 };
 
+// Same structure as AcCmdCRUseMagicItemOK
 struct AcCmdCRUseMagicItemNotify
 {
-  // Same structure as AcCmdCRUseMagicItemOK
-  uint16_t magicType;       // Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
-  uint16_t pad06;           // Alignment padding
+  uint16_t magicType;       // +0x04: Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
+  uint16_t pad06;           // +0x06: Alignment padding
   
-  int32_t  subtypeOrCode;   // Subtype or code parameter
+  int32_t  actorOid;        // +0x08: Actor/caster OID
+  int32_t  mode;            // +0x0C: Mode/subtype
   
-  // Unknown fields (5 × int32)
-  int32_t  unk0C;
-  int32_t  unk10;
-  int32_t  unk14;
-  int32_t  unk18;
-  int32_t  unk1C;
+  // Variable-length IDs array (target OIDs)
+  std::array<uint16_t, 8> ids;  // +0x10: IDs array
+  uint32_t idsCount;            // +0x20: Count of valid IDs
   
-  // Vectors (always present, conditionally filled for magicType 10/11)
+  // Vectors for mode 10/11
   struct Vec3 { float x, y, z; };
-  Vec3 vecA;
-  Vec3 vecB;
+  Vec3 pos;                 // +0x24: Position vector
+  Vec3 dir;                 // +0x30: Direction vector
   
   // Tail fields
-  uint16_t tailU16;
-  uint16_t pad3A;           // Alignment padding
-  uint32_t tailU32;
+  uint16_t extraShort;      // +0x3C: Extra parameter
+  uint16_t pad3E;           // +0x3E: Padding
+  uint32_t extraParam;      // +0x40: Extra parameter
   
   static Command GetCommand()
   {
