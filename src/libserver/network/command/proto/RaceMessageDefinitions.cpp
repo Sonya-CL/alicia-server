@@ -1360,28 +1360,28 @@ void AcCmdCRUseMagicItemOK::Write(
   SinkStream& stream)
 {
   // Write header
-  stream.Write(command.magicType);
-  stream.Write(command.pad06);
-  stream.Write(command.actorOid);
-  stream.Write(command.mode);
-  
-  // Write FULL IDs array (8 × uint16 = 16 bytes), not variable-length
-  for (uint8_t i = 0; i < 8; ++i)
+  stream.Write(command.actor_oid);
+  stream.Write(command.magic_type);
+
+  // Write conditional spatial data (for magic_type 10/11)
+  if (command.spatial.has_value())
   {
-    stream.Write(command.ids[i]);
+    stream.Write(command.spatial->vecA.x).Write(command.spatial->vecA.y).Write(command.spatial->vecA.z);
+    stream.Write(command.spatial->vecB.x).Write(command.spatial->vecB.y).Write(command.spatial->vecB.z);
   }
+
+  // Write common payload (always present)
+  stream.Write(command.payload.ids_count);
   
-  // Write IDs count (int32 at +0x20)
-  stream.Write(command.idsCount);
-  
-  // Write vectors (for mode 10/11, otherwise may be zeroed)
-  stream.Write(command.pos.x).Write(command.pos.y).Write(command.pos.z);
-  stream.Write(command.dir.x).Write(command.dir.y).Write(command.dir.z);
-  
-  // Write tail fields
-  stream.Write(command.extraShort);
-  stream.Write(command.pad3E);
-  stream.Write(command.extraParam);
+  // Write IDs array (only ids_count entries are valid)
+  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+  {
+    stream.Write(command.payload.ids[i]);
+  }
+
+  // Write trailer
+  stream.Write(command.tail_u16);
+  stream.Write(command.tail_u32);
 }
 
 void AcCmdCRUseMagicItemOK::Read(
@@ -1389,28 +1389,40 @@ void AcCmdCRUseMagicItemOK::Read(
   SourceStream& stream)
 {
   // Read header
-  stream.Read(command.magicType);
-  stream.Read(command.pad06);
-  stream.Read(command.actorOid);
-  stream.Read(command.mode);
-  
-  // Read FULL IDs array (8 × uint16)
-  for (uint8_t i = 0; i < 8; ++i)
+  stream.Read(command.actor_oid);
+  stream.Read(command.magic_type);
+
+  // Read conditional spatial data (for magic_type 10/11)
+  if (command.magic_type == 10 || command.magic_type == 11)
   {
-    stream.Read(command.ids[i]);
+    Spatial spatial;
+    stream.Read(spatial.vecA.x).Read(spatial.vecA.y).Read(spatial.vecA.z);
+    stream.Read(spatial.vecB.x).Read(spatial.vecB.y).Read(spatial.vecB.z);
+    command.spatial = spatial;
+  }
+  else
+  {
+    command.spatial = std::nullopt;
+  }
+
+  // Read common payload (always present)
+  stream.Read(command.payload.ids_count);
+  
+  // Read IDs array (only ids_count entries are valid)
+  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+  {
+    stream.Read(command.payload.ids[i]);
   }
   
-  // Read IDs count
-  stream.Read(command.idsCount);
-  
-  // Read vectors
-  stream.Read(command.pos.x).Read(command.pos.y).Read(command.pos.z);
-  stream.Read(command.dir.x).Read(command.dir.y).Read(command.dir.z);
-  
-  // Read tail fields
-  stream.Read(command.extraShort);
-  stream.Read(command.pad3E);
-  stream.Read(command.extraParam);
+  // Zero out unused IDs
+  for (uint8_t i = command.payload.ids_count; i < 8; ++i)
+  {
+    command.payload.ids[i] = 0;
+  }
+
+  // Read trailer
+  stream.Read(command.tail_u16);
+  stream.Read(command.tail_u32);
 }
 
 void AcCmdGameRaceItemSpawn::Write(
@@ -1533,28 +1545,28 @@ void AcCmdCRUseMagicItemNotify::Write(
   SinkStream& stream)
 {
   // Write header
-  stream.Write(command.magicType);
-  stream.Write(command.pad06);
-  stream.Write(command.actorOid);
-  stream.Write(command.mode);
-  
-  // Write FULL IDs array (8 × uint16 = 16 bytes), not variable-length
-  for (uint8_t i = 0; i < 8; ++i)
+  stream.Write(command.actor_oid);
+  stream.Write(command.magic_type);
+
+  // Write conditional spatial data (for magic_type 10/11)
+  if (command.spatial.has_value())
   {
-    stream.Write(command.ids[i]);
+    stream.Write(command.spatial->vecA.x).Write(command.spatial->vecA.y).Write(command.spatial->vecA.z);
+    stream.Write(command.spatial->vecB.x).Write(command.spatial->vecB.y).Write(command.spatial->vecB.z);
   }
+
+  // Write common payload (always present)
+  stream.Write(command.payload.ids_count);
   
-  // Write IDs count (int32 at +0x20)
-  stream.Write(command.idsCount);
-  
-  // Write vectors
-  stream.Write(command.pos.x).Write(command.pos.y).Write(command.pos.z);
-  stream.Write(command.dir.x).Write(command.dir.y).Write(command.dir.z);
-  
-  // Write tail fields
-  stream.Write(command.extraShort);
-  stream.Write(command.pad3E);
-  stream.Write(command.extraParam);
+  // Write IDs array (only ids_count entries are valid)
+  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+  {
+    stream.Write(command.payload.ids[i]);
+  }
+
+  // Write trailer
+  stream.Write(command.tail_u16);
+  stream.Write(command.tail_u32);
 }
 
 void AcCmdCRUseMagicItemNotify::Read(
@@ -1562,28 +1574,40 @@ void AcCmdCRUseMagicItemNotify::Read(
   SourceStream& stream)
 {
   // Read header
-  stream.Read(command.magicType);
-  stream.Read(command.pad06);
-  stream.Read(command.actorOid);
-  stream.Read(command.mode);
-  
-  // Read FULL IDs array (8 × uint16)
-  for (uint8_t i = 0; i < 8; ++i)
+  stream.Read(command.actor_oid);
+  stream.Read(command.magic_type);
+
+  // Read conditional spatial data (for magic_type 10/11)
+  if (command.magic_type == 10 || command.magic_type == 11)
   {
-    stream.Read(command.ids[i]);
+    Spatial spatial;
+    stream.Read(spatial.vecA.x).Read(spatial.vecA.y).Read(spatial.vecA.z);
+    stream.Read(spatial.vecB.x).Read(spatial.vecB.y).Read(spatial.vecB.z);
+    command.spatial = spatial;
+  }
+  else
+  {
+    command.spatial = std::nullopt;
+  }
+
+  // Read common payload (always present)
+  stream.Read(command.payload.ids_count);
+  
+  // Read IDs array (only ids_count entries are valid)
+  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+  {
+    stream.Read(command.payload.ids[i]);
   }
   
-  // Read IDs count
-  stream.Read(command.idsCount);
-  
-  // Read vectors
-  stream.Read(command.pos.x).Read(command.pos.y).Read(command.pos.z);
-  stream.Read(command.dir.x).Read(command.dir.y).Read(command.dir.z);
-  
-  // Read tail fields
-  stream.Read(command.extraShort);
-  stream.Read(command.pad3E);
-  stream.Read(command.extraParam);
+  // Zero out unused IDs
+  for (uint8_t i = command.payload.ids_count; i < 8; ++i)
+  {
+    command.payload.ids[i] = 0;
+  }
+
+  // Read trailer
+  stream.Read(command.tail_u16);
+  stream.Read(command.tail_u32);
 }
 
 void AcCmdRCTriggerActivate::Write(

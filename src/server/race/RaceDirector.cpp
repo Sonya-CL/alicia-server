@@ -1690,40 +1690,54 @@ void RaceDirector::HandleUseMagicItem(
 
   // Send OK response (bolt included - client sends target in original command)
   protocol::AcCmdCRUseMagicItemOK response{};
-  response.magicType = static_cast<uint16_t>(command.mode);
-  response.pad06 = 0;
-  response.actorOid = static_cast<int32_t>(command.type_copy);  // Caster OID
-  response.mode = static_cast<int32_t>(command.mode);
-  
-  // Include target IDs if present
-  response.ids.fill(0);
-  response.idsCount = 0;
-  if (command.idsBlock.has_value())
+  response.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
+  response.magic_type = static_cast<uint32_t>(command.mode);
+
+  // Set spatial data for modes 10/11 (ice wall)
+  if (command.mode == 10 || command.mode == 11)
   {
-    const auto& idsBlock = command.idsBlock.value();
-    response.idsCount = std::min(static_cast<uint32_t>(idsBlock.ids_count), 8u);
-    for (uint32_t i = 0; i < response.idsCount; ++i)
+    if (command.vecA.has_value() && command.vecB.has_value())
     {
-      response.ids[i] = static_cast<uint16_t>(idsBlock.ids[i]);
+      protocol::Spatial spatial;
+      spatial.vecA = {command.vecA->x, command.vecA->y, command.vecA->z};
+      spatial.vecB = {command.vecB->x, command.vecB->y, command.vecB->z};
+      response.spatial = spatial;
     }
-  }
-  
-  // Copy vectors if present (modes 10/11), otherwise zero
-  if (command.vecA.has_value() && command.vecB.has_value())
-  {
-    response.pos = {command.vecA->x, command.vecA->y, command.vecA->z};
-    response.dir = {command.vecB->x, command.vecB->y, command.vecB->z};
+    else
+    {
+      protocol::Spatial spatial;
+      spatial.vecA = {0.0f, 0.0f, 0.0f};
+      spatial.vecB = {0.0f, 0.0f, 0.0f};
+      response.spatial = spatial;
+    }
   }
   else
   {
-    response.pos = {0.0f, 0.0f, 0.0f};
-    response.dir = {0.0f, 0.0f, 0.0f};
+    response.spatial = std::nullopt;
+  }
+
+  // Set common payload (always present)
+  response.payload.ids_count = 0;
+  
+  if (command.idsBlock.has_value())
+  {
+    const auto& idsBlock = command.idsBlock.value();
+    response.payload.ids_count = std::min(static_cast<uint8_t>(idsBlock.ids_count), static_cast<uint8_t>(8));
+    for (uint8_t i = 0; i < response.payload.ids_count; ++i)
+    {
+      response.payload.ids[i] = static_cast<int16_t>(idsBlock.ids[i]);
+    }
   }
   
+  // Zero out unused IDs
+  for (uint8_t i = response.payload.ids_count; i < 8; ++i)
+  {
+    response.payload.ids[i] = 0;
+  }
+
   // Tail fields
-  response.extraShort = static_cast<uint16_t>(command.type_copy);  // Character OID
-  response.pad3E = 0;
-  response.extraParam = command.extraB.has_value() ? command.extraB.value() : 0;
+  response.tail_u16 = static_cast<uint16_t>(command.type_copy);  // Character OID
+  response.tail_u32 = 0;
 
   _commandServer.QueueCommand<decltype(response)>(
     clientId,
@@ -1734,62 +1748,76 @@ void RaceDirector::HandleUseMagicItem(
 
   // Notify other players AND apply effects
   protocol::AcCmdCRUseMagicItemNotify usageNotify{};
-  usageNotify.magicType = static_cast<uint16_t>(command.mode);
-  usageNotify.pad06 = 0;
-  usageNotify.actorOid = static_cast<int32_t>(command.type_copy);  // Caster OID
-  usageNotify.mode = static_cast<int32_t>(command.mode);
+  usageNotify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
+  usageNotify.magic_type = static_cast<uint32_t>(command.mode);
+
+  // Set spatial data for modes 10/11 (ice wall)
+  if (command.mode == 10 || command.mode == 11)
+  {
+    if (command.vecA.has_value() && command.vecB.has_value())
+    {
+      protocol::Spatial spatial;
+      spatial.vecA = {command.vecA->x, command.vecA->y, command.vecA->z};
+      spatial.vecB = {command.vecB->x, command.vecB->y, command.vecB->z};
+      usageNotify.spatial = spatial;
+    }
+    else
+    {
+      protocol::Spatial spatial;
+      spatial.vecA = {0.0f, 0.0f, 0.0f};
+      spatial.vecB = {0.0f, 0.0f, 0.0f};
+      usageNotify.spatial = spatial;
+    }
+  }
+  else
+  {
+    usageNotify.spatial = std::nullopt;
+  }
+
+  // Set common payload (always present)
+  usageNotify.payload.ids_count = 0;
   
-  // Include target IDs from command
-  usageNotify.ids.fill(0);
-  usageNotify.idsCount = 0;
   if (command.idsBlock.has_value())
   {
     const auto& idsBlock = command.idsBlock.value();
-    usageNotify.idsCount = std::min(static_cast<uint32_t>(idsBlock.ids_count), 8u);
-    for (uint32_t i = 0; i < usageNotify.idsCount; ++i)
+    usageNotify.payload.ids_count = std::min(static_cast<uint8_t>(idsBlock.ids_count), static_cast<uint8_t>(8));       
+    for (uint8_t i = 0; i < usageNotify.payload.ids_count; ++i)
     {
-      usageNotify.ids[i] = static_cast<uint16_t>(idsBlock.ids[i]);
+      usageNotify.payload.ids[i] = static_cast<int16_t>(idsBlock.ids[i]);
     }
-    
+
     // For bolt with targets, apply effects server-side
-    if (command.mode == 2 && usageNotify.idsCount > 0)
+    if (command.mode == 2 && usageNotify.payload.ids_count > 0)
     {
-      uint16_t targetOid = usageNotify.ids[0];
+      int16_t targetOid = usageNotify.payload.ids[0];
       spdlog::info("Bolt fired at target OID {}", targetOid);
-      
+
       // Remove target's magic item if they have one
       for (auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
       {
         if (targetRacer.oid == targetOid && targetRacer.magicItem.has_value())
         {
-          spdlog::info("Target {} lost magic item {}", targetOid, targetRacer.magicItem.value());
+          spdlog::info("Target {} lost magic item {}", targetOid, targetRacer.magicItem.value());                                                                                    
           targetRacer.magicItem.reset();
           break;
         }
       }
-      
+
       // Consume attacker's bolt
       racer.magicItem.reset();
       spdlog::info("Attacker {} consumed bolt", command.type_copy);
     }
   }
   
-  // Copy vectors if present (modes 10/11), otherwise zero
-  if (command.vecA.has_value() && command.vecB.has_value())
+  // Zero out unused IDs
+  for (uint8_t i = usageNotify.payload.ids_count; i < 8; ++i)
   {
-    usageNotify.pos = {command.vecA->x, command.vecA->y, command.vecA->z};
-    usageNotify.dir = {command.vecB->x, command.vecB->y, command.vecB->z};
+    usageNotify.payload.ids[i] = 0;
   }
-  else
-  {
-    usageNotify.pos = {0.0f, 0.0f, 0.0f};
-    usageNotify.dir = {0.0f, 0.0f, 0.0f};
-  }
-  
+
   // Tail fields
-  usageNotify.extraShort = static_cast<uint16_t>(command.type_copy);
-  usageNotify.pad3E = 0;
-  usageNotify.extraParam = command.extraB.has_value() ? command.extraB.value() : 0;
+  usageNotify.tail_u16 = static_cast<uint16_t>(command.type_copy);
+  usageNotify.tail_u32 = 0;
 
   // Send usage notification to ALL players (including attacker for bolt)
   // Skip only for ice wall (has its own handling)
@@ -1806,34 +1834,38 @@ void RaceDirector::HandleUseMagicItem(
   // Special handling for ice wall
   if (command.mode == 10)
   {
-    spdlog::info("Ice wall used! Spawning ice wall at player {} location", clientId);
+    spdlog::info("Ice wall used! Spawning ice wall at player {} location", clientId);     
 
     protocol::AcCmdCRUseMagicItemNotify notify{};
-    notify.magicType = static_cast<uint16_t>(command.mode);
-    notify.pad06 = 0;
-    notify.actorOid = static_cast<int32_t>(command.type_copy);  // Caster OID
-    notify.mode = static_cast<int32_t>(command.mode);
-    
-    // No target IDs for ice wall
-    notify.ids.fill(0);
-    notify.idsCount = 0;
-    
-    // Set position vectors for ice wall (mode 10/11)
+    notify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
+    notify.magic_type = static_cast<uint32_t>(command.mode);
+
+    // Set spatial data for ice wall (mode 10)
     if (command.vecA.has_value() && command.vecB.has_value())
     {
-      notify.pos = {command.vecA->x, command.vecA->y, command.vecA->z};
-      notify.dir = {command.vecB->x, command.vecB->y, command.vecB->z};
+      protocol::Spatial spatial;
+      spatial.vecA = {command.vecA->x, command.vecA->y, command.vecA->z};
+      spatial.vecB = {command.vecB->x, command.vecB->y, command.vecB->z};
+      notify.spatial = spatial;
     }
     else
     {
-      notify.pos = {0.0f, 0.0f, 0.0f};
-      notify.dir = {0.0f, 0.0f, 0.0f};
+      protocol::Spatial spatial;
+      spatial.vecA = {0.0f, 0.0f, 0.0f};
+      spatial.vecB = {0.0f, 0.0f, 0.0f};
+      notify.spatial = spatial;
     }
-    
+
+    // Set common payload (always present, but empty for ice wall)
+    notify.payload.ids_count = 0;
+    for (uint8_t i = 0; i < 8; ++i)
+    {
+      notify.payload.ids[i] = 0;
+    }
+
     // Tail fields
-    notify.extraShort = static_cast<uint16_t>(command.type_copy);
-    notify.pad3E = 0;
-    notify.extraParam = 0;
+    notify.tail_u16 = static_cast<uint16_t>(command.type_copy);
+    notify.tail_u32 = 0;
     // Spawn ice wall at a reasonable position (near start line like other items)
     auto& iceWall = roomInstance.tracker.AddItem();
     iceWall.itemType = 102;  // Use same type as working items (temporarily)
@@ -2015,24 +2047,23 @@ void RaceDirector::HandleChangeMagicTargetOK(
       
       // Send bolt hit as magic item usage notification
       protocol::AcCmdCRUseMagicItemNotify boltHitNotify{};
-      boltHitNotify.magicType = 2;  // Bolt magic item ID
-      boltHitNotify.pad06 = 0;
-      boltHitNotify.actorOid = static_cast<int32_t>(command.characterOid);  // Caster/attacker OID
-      boltHitNotify.mode = 2;  // Bolt mode
-      
+      boltHitNotify.actor_oid = static_cast<uint16_t>(command.characterOid);  // Caster/attacker OID                                                                                   
+      boltHitNotify.magic_type = 2;  // Bolt magic item ID
+
+      // No spatial data for bolt
+      boltHitNotify.spatial = std::nullopt;
+
       // CRITICAL: Include target OID in IDs array so client can apply knockdown
-      boltHitNotify.ids.fill(0);
-      boltHitNotify.ids[0] = static_cast<uint16_t>(command.targetOid);  // Target OID
-      boltHitNotify.idsCount = 1;  // One target
-      
-      // Zero vectors (not used for bolt)
-      boltHitNotify.pos = {0.0f, 0.0f, 0.0f};
-      boltHitNotify.dir = {0.0f, 0.0f, 0.0f};
-      
+      boltHitNotify.payload.ids_count = 1;  // One target
+      boltHitNotify.payload.ids[0] = static_cast<int16_t>(command.targetOid);  // Target OID     
+      for (uint8_t i = 1; i < 8; ++i)
+      {
+        boltHitNotify.payload.ids[i] = 0;  // Zero out unused slots
+      }
+
       // Tail fields
-      boltHitNotify.extraShort = static_cast<uint16_t>(command.targetOid);  // Target OID
-      boltHitNotify.pad3E = 0;
-      boltHitNotify.extraParam = 0;
+      boltHitNotify.tail_u16 = static_cast<uint16_t>(command.targetOid);  // Target OID 
+      boltHitNotify.tail_u32 = 0;
       
       for (const ClientId& roomClientId : roomInstance.clients)
       {
