@@ -234,10 +234,9 @@ private:
     ClientId clientId,
     const protocol::AcCmdCRChangeMagicTargetCancel& command);
 
-  // Note: HandleActivateSkillEffect commented out due to build issues
-  // void HandleActivateSkillEffect(
-  //   ClientId clientId,
-  //   const protocol::AcCmdCRActivateSkillEffect& command);
+  void HandleActivateSkillEffect(
+    ClientId clientId,
+    const protocol::AcCmdCRActivateSkillEffect& command);
 
   //!
   std::thread test;

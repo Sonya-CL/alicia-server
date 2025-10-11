@@ -237,12 +237,11 @@ RaceDirector::RaceDirector(ServerInstance& serverInstance)
       HandleChangeMagicTargetCancel(clientId, message);
     });
   
-  // Note: AcCmdCRActivateSkillEffect handler commented out due to build issues
-  // _commandServer.RegisterCommandHandler<protocol::AcCmdCRActivateSkillEffect>(
-  //   [this](ClientId clientId, const auto& message)
-  //   {
-  //     HandleActivateSkillEffect(clientId, message);
-  //   });
+  _commandServer.RegisterCommandHandler<protocol::AcCmdCRActivateSkillEffect>(
+    [this](ClientId clientId, const auto& message)
+    {
+      HandleActivateSkillEffect(clientId, message);
+    });
 }
 
 void RaceDirector::Initialize()
@@ -1736,7 +1735,15 @@ void RaceDirector::HandleUseMagicItem(
   }
 
   // Tail fields
-  response.tail_u16 = static_cast<uint16_t>(command.type_copy);  // Character OID
+  // Set tail_u16 to victim OID for bolt, otherwise attacker OID
+  if (command.mode == 2 && response.payload.ids_count > 0)
+  {
+    response.tail_u16 = static_cast<uint16_t>(response.payload.ids[0]);  // Victim OID for bolt
+  }
+  else
+  {
+    response.tail_u16 = static_cast<uint16_t>(command.type_copy);  // Attacker OID for other magic
+  }
   response.tail_u32 = 0;
 
   _commandServer.QueueCommand<decltype(response)>(
@@ -1797,8 +1804,31 @@ void RaceDirector::HandleUseMagicItem(
       {
         if (targetRacer.oid == targetOid && targetRacer.magicItem.has_value())
         {
-          spdlog::info("Target {} lost magic item {}", targetOid, targetRacer.magicItem.value());                                                                                    
+          uint32_t lostItemId = targetRacer.magicItem.value();
+          spdlog::info("Target {} lost magic item {}", targetOid, lostItemId);
           targetRacer.magicItem.reset();
+          
+          // Send explicit MagicExpire command to victim
+          protocol::AcCmdRCMagicExpire expireNotify{};
+          expireNotify.magicId = lostItemId;
+          expireNotify.actorId = static_cast<uint16_t>(targetOid);
+          expireNotify.magicCode = static_cast<uint16_t>(lostItemId);
+          expireNotify.reasonFlag = 1;  // Hit by bolt (reason: consumed/stolen)
+          
+          // Find victim's client and send
+          for (const auto& roomClientId : roomInstance.clients)
+          {
+            const auto& roomClientContext = _clients[roomClientId];
+            auto& roomClientRacer = roomInstance.tracker.GetRacer(roomClientContext.characterUid);
+            if (roomClientRacer.oid == targetOid)
+            {
+              _commandServer.QueueCommand<decltype(expireNotify)>(
+                roomClientId,
+                [expireNotify]() { return expireNotify; });
+              spdlog::info("Sent MagicExpire to victim client {} (OID {})", roomClientId, targetOid);
+              break;
+            }
+          }
           break;
         }
       }
@@ -1816,7 +1846,15 @@ void RaceDirector::HandleUseMagicItem(
   }
 
   // Tail fields
-  usageNotify.tail_u16 = static_cast<uint16_t>(command.type_copy);
+  // Set tail_u16 to victim OID if bolt has targets, otherwise attacker OID
+  if (command.mode == 2 && usageNotify.payload.ids_count > 0)
+  {
+    usageNotify.tail_u16 = static_cast<uint16_t>(usageNotify.payload.ids[0]);  // Victim OID for bolt
+  }
+  else
+  {
+    usageNotify.tail_u16 = static_cast<uint16_t>(command.type_copy);  // Attacker OID for other magic
+  }
   usageNotify.tail_u32 = 0;
 
   // Send usage notification to ALL players (including attacker for bolt)
@@ -2040,7 +2078,33 @@ void RaceDirector::HandleChangeMagicTargetOK(
       
       // Apply bolt effects: fall down, lose speed, lose item
       // Reset their magic item (they lose it when hit)
-      targetRacer.magicItem.reset();
+      if (targetRacer.magicItem.has_value())
+      {
+        uint32_t lostItemId = targetRacer.magicItem.value();
+        targetRacer.magicItem.reset();
+        
+        // Send explicit MagicExpire command to victim
+        protocol::AcCmdRCMagicExpire expireNotify{};
+        expireNotify.magicId = lostItemId;
+        expireNotify.actorId = static_cast<uint16_t>(command.targetOid);
+        expireNotify.magicCode = static_cast<uint16_t>(lostItemId);
+        expireNotify.reasonFlag = 1;  // Hit by bolt (reason: consumed/stolen)
+        
+        // Find victim's client and send
+        for (const auto& roomClientId : roomInstance.clients)
+        {
+          const auto& roomClientContext = _clients[roomClientId];
+          auto& roomClientRacer = roomInstance.tracker.GetRacer(roomClientContext.characterUid);
+          if (roomClientRacer.oid == command.targetOid)
+          {
+            _commandServer.QueueCommand<decltype(expireNotify)>(
+              roomClientId,
+              [expireNotify]() { return expireNotify; });
+            spdlog::info("Sent MagicExpire to victim client {} (OID {})", roomClientId, command.targetOid);
+            break;
+          }
+        }
+      }
       
       // Send bolt hit notification to all clients so they can see the hit effects
       spdlog::info("Sending bolt hit notification to all clients for target {}", command.targetOid);
@@ -2128,6 +2192,28 @@ void RaceDirector::HandleChangeMagicTargetCancel(
   racer.currentTarget = tracker::InvalidEntityOid;
   
   spdlog::info("Character {} exited targeting mode", command.characterOid);
+}
+
+void RaceDirector::HandleActivateSkillEffect(
+  ClientId clientId,
+  const protocol::AcCmdCRActivateSkillEffect& command)
+{
+  spdlog::info("Player {} activated skill effect: field_04={}, field_08={}, field_0C={}, field_0E={}, field_10={}", 
+    clientId, command.field_04, command.field_08, command.field_0C, command.field_0E, command.field_10);
+  
+  // This command appears to be sent by the client when visual effects should be triggered
+  // For bolt magic: field_04=2 (target OID?), field_08=0, field_0C=1, field_0E=1, field_10=1.0
+  // 
+  // The server doesn't need to respond to this - it's informational
+  // Client is telling server "I'm playing this skill effect animation"
+  // 
+  // In the future, this could be used for:
+  // - Anti-cheat validation (did client play expected effect?)
+  // - Server-side effect tracking
+  // - Replays/spectators
+  
+  // For now, just log and acknowledge
+  spdlog::debug("Handled ActivateSkillEffect from client {}", clientId);
 }
 
 

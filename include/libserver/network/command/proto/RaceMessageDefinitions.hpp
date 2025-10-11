@@ -1756,24 +1756,38 @@ struct AcCmdCRUseMagicItem
 {
   struct Vec3 { float x, y, z; };
 
-  uint16_t type_copy;   // field 1
-  uint32_t mode;        // field 2
+  uint16_t type_copy;   // Character OID or type copy
+  uint32_t mode;        // Magic item type (see magic types below)
 
-  // if mode == 10 || 11
-  std::optional<Vec3> vecA;  // field 3
-  std::optional<Vec3> vecB;  // field 4
+  // Position/orientation vectors - only for placement magic (Ice Wall: 10, 11)
+  std::optional<Vec3> vecA;  // Origin/aim position
+  std::optional<Vec3> vecB;  // Target/impact position
 
-  // IDs block
+  // Target IDs block - for offensive/placement magic (2,3,10-19)
+  // NOT used for self-buffs (4-9, 20-22)
   struct IdsBlock
   {
-    uint8_t ids_count;    // field 5
-    std::array<int16_t, 8> ids;  // field 6 (only ids_count valid)
+    uint8_t ids_count;    // Number of target IDs
+    std::array<int16_t, 8> ids;  // Target OIDs (only ids_count valid)
   };
   std::optional<IdsBlock> idsBlock;
 
-  uint32_t extraA;      // field 7
-  std::optional<uint32_t> extraB;  // field 8 (if mode in {2,3,14..19})
-  std::optional<float> extraF;     // field 9 (same condition)
+  uint32_t extraA;      // Extra parameter (always present)
+  std::optional<uint32_t> extraB;  // Extra parameter (offensive magic: 2,3,14-19)
+  std::optional<float> extraF;     // Extra float parameter (offensive magic: 2,3,14-19)
+  
+  // Magic Types:
+  // 2,3 - Bolt (offensive, targeting)
+  // 4,5 - Shield (self-buff)
+  // 6,7 - Boost (self-buff)
+  // 8,9 - Feather (self-buff)
+  // 10,11 - Ice Wall (placement, needs vectors)
+  // 12,13 - Chains (area effect)
+  // 14,15 - Darkness (offensive, targeting)
+  // 16,17 - Fire Dragon (offensive, targeting)
+  // 18,19 - Thunder (offensive, targeting)
+  // 20,21 - Magic Wand (self-buff)
+  // 22 - Green Book (unknown)
 
   static Command GetCommand()
   {
@@ -1817,35 +1831,79 @@ struct AcCmdCRUseMagicItemCancel
     SourceStream& stream);
 };
 
-// Client handler decompilation shows:
-// - actorOid at +0x08 (uint16)
-// - mode at +0x0C (int32)
-// - IDs vector at +0x10 (variable-length uint16 array, count at +0x20)
-// - extraShort at +0x3C (uint16)
-// - extraParam (uint32)
-// - For mode 10/11: pos and dir (Vec3 each)
+#pragma pack(push, 1)
+
+struct Vec3 { float x, y, z; };  // read by FUN_004d00e0, written by FUN_0045ed60
+
+// Spatial data for magic types 10/11 (ice wall positioning)
+struct Spatial {
+  Vec3 vecA;             // e.g., origin/aim position
+  Vec3 vecB;             // e.g., target/impact position
+};
+
+// Common payload for all magic types
+struct CommonPayload {
+  uint8_t ids_count;     // number of following IDs
+  int16_t ids[8];        // only ids_count entries valid
+};
+
+// Command ID (FUN_004d5880) == 0xBB
+struct AcCmdCRUseMagicItemNotify {
+  // --- Header (FUN_004d6bc0 reads; FUN_004d5540 writes) ---
+  uint16_t actor_oid;    // *(u16*)(this+4)  ← first thing read/written (2 bytes)
+  uint32_t magic_type;   // this[2]          ← next (4 bytes). Switch uses this.
+
+  // --- Conditional spatial data for magic_type in {10, 11} ---
+  std::optional<Spatial> spatial;        // Only for magic_type in {10, 11}
+  
+  // --- Common payload for all types ---
+  CommonPayload payload;  // Always present
+
+  // --- Trailer (handled by vtable [3]/[4]) ---
+  // FUN_004d5730 reads a u16 then a u32 into (this+0x38 bytes) and (this+0x3C bytes).
+  // FUN_004d5800 writes them back. These are always appended after the above.
+  uint16_t tail_u16;     // purpose unknown (status/flags/slot/etc.)
+  uint32_t tail_u32;     // purpose unknown (timestamp/sequence/seed/etc.)
+
+  // Note: the class has internal working fields too (e.g., this[7] zeroed in reader),
+  // but those aren't transmitted—just runtime state.
+
+  static Command GetCommand()
+  {
+    return Command::AcCmdCRUseMagicItemNotify;
+  }
+
+  //! Writes the command to a provided sink stream.
+  //! @param command Command.
+  //! @param stream Sink stream.
+  static void Write(
+    const AcCmdCRUseMagicItemNotify& command,
+    SinkStream& stream);
+
+  //! Reader a command from a provided source stream.
+  //! @param command Command.
+  //! @param stream Source stream.
+  static void Read(
+    AcCmdCRUseMagicItemNotify& command,
+    SourceStream& stream);
+};
+
+// Same structure as AcCmdCRUseMagicItemNotify for OK response
 struct AcCmdCRUseMagicItemOK
 {
-  uint16_t magicType;       // +0x04: Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
-  uint16_t pad06;           // +0x06: Alignment padding
+  // --- Header ---
+  uint16_t actor_oid;    // +0x04: Actor/caster OID
+  uint32_t magic_type;   // +0x06: Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
+
+  // --- Conditional spatial data for magic_type in {10, 11} ---
+  std::optional<Spatial> spatial;        // Only for magic_type in {10, 11}
   
-  int32_t  actorOid;        // +0x08: Actor/caster OID (client reads as uint16 but stored as int32)
-  int32_t  mode;            // +0x0C: Mode/subtype (same as magicType for most cases)
-  
-  // Variable-length IDs array (target OIDs for bolt, effect IDs for other magic)
-  // Serialized as: [count: u8][count × uint16]
-  std::array<uint16_t, 8> ids;  // +0x10: IDs array (in memory)
-  uint32_t idsCount;            // +0x20: Count of valid IDs (only low 8 bits serialized)
-  
-  // Vectors for mode 10/11 (pos and dir)
-  struct Vec3 { float x, y, z; };
-  Vec3 pos;                 // +0x24: Position vector (for ice wall)
-  Vec3 dir;                 // +0x30: Direction vector (for ice wall)
-  
-  // Tail fields
-  uint16_t extraShort;      // +0x3C: Extra parameter (client reads this)
-  uint16_t pad3E;           // +0x3E: Padding
-  uint32_t extraParam;      // +0x40: Extra parameter (duration, object ID, etc.)
+  // --- Common payload for all types ---
+  CommonPayload payload;  // Always present
+
+  // --- Trailer ---
+  uint16_t tail_u16;     // +0x3F: Tail field 1
+  uint32_t tail_u32;     // +0x41: Tail field 2
   
   static Command GetCommand()
   {
@@ -1867,48 +1925,7 @@ struct AcCmdCRUseMagicItemOK
     SourceStream& stream);
 };
 
-// Same structure as AcCmdCRUseMagicItemOK
-struct AcCmdCRUseMagicItemNotify
-{
-  uint16_t magicType;       // +0x04: Magic item type (2=Bolt, 4=Shield, 10/11=Ice Wall)
-  uint16_t pad06;           // +0x06: Alignment padding
-  
-  int32_t  actorOid;        // +0x08: Actor/caster OID
-  int32_t  mode;            // +0x0C: Mode/subtype
-  
-  // Variable-length IDs array (target OIDs)
-  std::array<uint16_t, 8> ids;  // +0x10: IDs array
-  uint32_t idsCount;            // +0x20: Count of valid IDs
-  
-  // Vectors for mode 10/11
-  struct Vec3 { float x, y, z; };
-  Vec3 pos;                 // +0x24: Position vector
-  Vec3 dir;                 // +0x30: Direction vector
-  
-  // Tail fields
-  uint16_t extraShort;      // +0x3C: Extra parameter
-  uint16_t pad3E;           // +0x3E: Padding
-  uint32_t extraParam;      // +0x40: Extra parameter
-  
-  static Command GetCommand()
-  {
-    return Command::AcCmdCRUseMagicItemNotify;
-  }
-
-  //! Writes the command to a provided sink stream.
-  //! @param command Command.
-  //! @param stream Sink stream.
-  static void Write(
-    const AcCmdCRUseMagicItemNotify& command,
-    SinkStream& stream);
-
-  //! Reader a command from a provided source stream.
-  //! @param command Command.
-  //! @param stream Source stream.
-  static void Read(
-    AcCmdCRUseMagicItemNotify& command,
-    SourceStream& stream);
-};
+#pragma pack(pop)
 
 struct AcCmdGameRaceItemSpawn
 {
@@ -2117,8 +2134,10 @@ struct AcCmdRCRemoveMagicTarget
 
 struct AcCmdRCMagicExpire
 {
-  uint16_t characterOid;
-  uint32_t magicItemId;
+  uint32_t magicId;        // Magic item ID/type (4 bytes)
+  uint16_t actorId;        // Actor/character OID (2 bytes)
+  uint16_t magicCode;      // Magic code/subtype (2 bytes)
+  uint8_t reasonFlag;      // Reason: expired, canceled, consumed, etc. (1 byte)
 
   static Command GetCommand()
   {
@@ -2169,10 +2188,11 @@ struct AcCmdRCTriggerActivate
 
 struct AcCmdCRActivateSkillEffect
 {
-  uint16_t characterOid;
-  uint32_t skillId;         // What skill/effect to activate
-  uint32_t unk1;            // Unknown parameter
-  uint32_t unk2;            // Unknown parameter
+  uint16_t field_04;        // Character OID or skill ID (2 bytes)
+  uint32_t field_08;        // Unknown parameter (4 bytes)
+  uint16_t field_0C;        // Unknown parameter (2 bytes)
+  uint16_t field_0E;        // Unknown parameter (2 bytes)
+  float field_10;           // Unknown float parameter (4 bytes)
 
   static Command GetCommand()
   {

@@ -1275,7 +1275,7 @@ void AcCmdCRUseMagicItem::Read(
   stream.Read(command.type_copy);
   stream.Read(command.mode);
 
-  // if mode == 10 || 11, read vecA and vecB
+  // Read position/orientation vectors for placement magic (Ice Wall: 10, 11)
   if (command.mode == 10 || command.mode == 11)
   {
     auto& vecA = command.vecA.emplace();
@@ -1285,20 +1285,22 @@ void AcCmdCRUseMagicItem::Read(
     stream.Read(vecB.x).Read(vecB.y).Read(vecB.z);
   }
 
-  // Read IDs block for specific modes
+  // Read target IDs for offensive/placement magic (2,3,10-19)
+  // Self-buffs (4-9, 20-22) don't have target IDs
   switch(command.mode)
   {
-    case 0x2:
-    case 0x3:
-    case 0xa:
-    case 0xb:
-    case 0xc:
-    case 0xd:
-    case 0xe:
-    case 0xf:
-    case 0x11:
-    case 0x12:
-    case 0x13:
+    case 0x2:   // Bolt
+    case 0x3:   // Crit Bolt
+    case 0xa:   // Ice Wall (10)
+    case 0xb:   // Crit Ice Wall (11)
+    case 0xc:   // Chains (12)
+    case 0xd:   // Crit Chains (13)
+    case 0xe:   // Darkness (14)
+    case 0xf:   // Crit Darkness (15)
+    case 0x10:  // Fire Dragon (16)
+    case 0x11:  // Crit Fire Dragon (17)
+    case 0x12:  // Thunder (18)
+    case 0x13:  // Crit Thunder (19)
     {
       auto& idsBlock = command.idsBlock.emplace();
       stream.Read(idsBlock.ids_count);
@@ -1318,17 +1320,18 @@ void AcCmdCRUseMagicItem::Read(
 
   stream.Read(command.extraA);
   
-  // if mode in {2,3,14..19}, read extraB and extraF
+  // Read extra parameters for offensive magic (2,3,14-19)
+  // Placement (10,11), area effect (12,13), and self-buffs don't have these
   switch (command.mode)
   {
-    case 0x2:
-    case 0x3:
-    case 0xe:   // 14
-    case 0xf:   // 15
-    case 0x10:  // 16
-    case 0x11:  // 17
-    case 0x12:  // 18
-    case 0x13:  // 19
+    case 0x2:   // Bolt
+    case 0x3:   // Crit Bolt
+    case 0xe:   // Darkness (14)
+    case 0xf:   // Crit Darkness (15)
+    case 0x10:  // Fire Dragon (16)
+    case 0x11:  // Crit Fire Dragon (17)
+    case 0x12:  // Thunder (18)
+    case 0x13:  // Crit Thunder (19)
     {
       stream.Read(command.extraB.emplace())
         .Read(command.extraF.emplace());
@@ -1537,7 +1540,20 @@ void AcCmdRCMagicExpire::Write(
   const AcCmdRCMagicExpire& command,
   SinkStream& stream)
 {
-  stream.Write(command.characterOid);
+  stream.Write(command.magicId);
+  stream.Write(command.actorId);
+  stream.Write(command.magicCode);
+  stream.Write(command.reasonFlag);
+}
+
+void AcCmdRCMagicExpire::Read(
+  AcCmdRCMagicExpire& command,
+  SourceStream& stream)
+{
+  stream.Read(command.magicId);
+  stream.Read(command.actorId);
+  stream.Read(command.magicCode);
+  stream.Read(command.reasonFlag);
 }
 
 void AcCmdCRUseMagicItemNotify::Write(
@@ -1634,20 +1650,22 @@ void AcCmdCRActivateSkillEffect::Write(
   const AcCmdCRActivateSkillEffect& command,
   SinkStream& stream)
 {
-  stream.Write(command.characterOid)
-    .Write(command.skillId)
-    .Write(command.unk1)
-    .Write(command.unk2);
+  stream.Write(command.field_04)
+    .Write(command.field_08)
+    .Write(command.field_0C)
+    .Write(command.field_0E)
+    .Write(command.field_10);
 }
 
 void AcCmdCRActivateSkillEffect::Read(
   AcCmdCRActivateSkillEffect& command,
   SourceStream& stream)
 {
-  stream.Read(command.characterOid)
-    .Read(command.skillId)
-    .Read(command.unk1)
-    .Read(command.unk2);
+  stream.Read(command.field_04)
+    .Read(command.field_08)
+    .Read(command.field_0C)
+    .Read(command.field_0E)
+    .Read(command.field_10);
 }
 
 void AcCmdRCAddSkillEffect::Write(
