@@ -2,20 +2,24 @@
 FROM alpine:3 AS build
 
 # Setup the build environment
-RUN apk add --no-cache cmake make git build-base boost-dev icu-dev
+RUN apk add --no-cache git cmake make pipx build-base icu-dev
+RUN pipx install conan
 
-ARG SERVER_BUILD_TYPE=RelWithDebInfo
+ENV PATH="/root/.local/bin:$PATH"
 
 # Build the server
 WORKDIR /build/alicia-server
 
-# Add linker search path to /usr/local as that is where iconv is installed at.
-ENV LD_LIBRARY_PATH=/usr/local/lib
-
 # Prepare the source
 COPY . .
 RUN git submodule update --init --recursive
-RUN cmake -DCMAKE_BUILD_TYPE=${SERVER_BUILD_TYPE} -DBUILD_TESTS=False . -B ./build
+
+# Configure conan
+RUN conan profile detect --force
+RUN conan install . -s build_type=Release --build=missing
+
+# Configure cmake and build
+RUN cmake --preset conan-default
 RUN cmake --build ./build --parallel
 
 # Install the binary

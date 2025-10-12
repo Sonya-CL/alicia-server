@@ -15,3 +15,5 @@ Testing/
 # vs
 .vs/
 .vscode/
+
+CMakeUserPresets.json

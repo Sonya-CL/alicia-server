@@ -4,9 +4,11 @@ project(alicia-server)
 
 option(BUILD_TESTS "Build tests" ON)
 
-find_package(Boost 1.80.0 MODULE)
-
-add_subdirectory(3rd-party SYSTEM)
+find_package(Boost REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(ZLIB REQUIRED)
 
 include(cmake/Versioning.cmake)
 get_semver()
@@ -72,7 +74,7 @@ target_link_libraries(alicia-libserver PUBLIC
         Boost::headers
         nlohmann_json::nlohmann_json
         yaml-cpp::yaml-cpp
-        zlibstatic)
+        ZLIB::ZLIB)
 
 # alicia-server target
 add_executable(alicia-server
@@ -115,5 +117,5 @@ add_custom_command(
         TARGET alicia-server POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/resources
-        ${CMAKE_CURRENT_BINARY_DIR})
+        ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)
 install(TARGETS alicia-server)
