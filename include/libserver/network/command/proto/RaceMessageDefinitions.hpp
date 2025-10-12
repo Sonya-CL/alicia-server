@@ -1864,6 +1864,11 @@ struct AcCmdCRUseMagicItemNotify {
   // FUN_004d5800 writes them back. These are always appended after the above.
   uint16_t tail_u16;     // purpose unknown (status/flags/slot/etc.)
   uint32_t tail_u32;     // purpose unknown (timestamp/sequence/seed/etc.)
+  
+  // --- Extra timing/sync fields (echo from client) ---
+  uint32_t extraA{0};      // Extra parameter (always present)
+  std::optional<uint32_t> extraB;  // Extra parameter (offensive magic: 2,3,14-19)
+  std::optional<float> extraF;     // Extra float parameter (offensive magic: 2,3,14-19)
 
   // Note: the class has internal working fields too (e.g., this[7] zeroed in reader),
   // but those aren't transmitted—just runtime state.
@@ -1904,6 +1909,11 @@ struct AcCmdCRUseMagicItemOK
   // --- Trailer ---
   uint16_t tail_u16;     // +0x3F: Tail field 1
   uint32_t tail_u32;     // +0x41: Tail field 2
+  
+  // --- Extra timing/sync fields (echo from client) ---
+  uint32_t extraA{0};      // Extra parameter (always present)
+  std::optional<uint32_t> extraB;  // Extra parameter (offensive magic: 2,3,14-19)
+  std::optional<float> extraF;     // Extra float parameter (offensive magic: 2,3,14-19)
   
   static Command GetCommand()
   {
@@ -2063,6 +2073,8 @@ struct AcCmdCRChangeMagicTargetOK
 {
   uint16_t characterOid;
   uint16_t targetOid;
+  uint16_t f08;
+  uint16_t f0A;
 
   static Command GetCommand()
   {

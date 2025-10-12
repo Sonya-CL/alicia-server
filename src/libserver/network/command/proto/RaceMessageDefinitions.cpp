@@ -1385,6 +1385,30 @@ void AcCmdCRUseMagicItemOK::Write(
   // Write trailer
   stream.Write(command.tail_u16);
   stream.Write(command.tail_u32);
+  
+  // Write extra timing/sync fields
+  stream.Write(command.extraA);
+  
+  // Write extraB and extraF for offensive magic types (2,3,14-19)
+  // Use magic_type (not mode) since this is the response
+  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  switch (baseType)
+  {
+    case 0x2:   // Bolt
+    case 0xe:   // Darkness (14)
+    case 0x10:  // Fire Dragon (16)
+    case 0x12:  // Thunder (18)
+    {
+      if (command.extraB.has_value() && command.extraF.has_value())
+      {
+        stream.Write(command.extraB.value());
+        stream.Write(command.extraF.value());
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 void AcCmdCRUseMagicItemOK::Read(
@@ -1426,6 +1450,26 @@ void AcCmdCRUseMagicItemOK::Read(
   // Read trailer
   stream.Read(command.tail_u16);
   stream.Read(command.tail_u32);
+  
+  // Read extra timing/sync fields
+  stream.Read(command.extraA);
+  
+  // Read extraB and extraF for offensive magic types (2,3,14-19)
+  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  switch (baseType)
+  {
+    case 0x2:   // Bolt
+    case 0xe:   // Darkness (14)
+    case 0x10:  // Fire Dragon (16)
+    case 0x12:  // Thunder (18)
+    {
+      stream.Read(command.extraB.emplace());
+      stream.Read(command.extraF.emplace());
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 void AcCmdGameRaceItemSpawn::Write(
@@ -1514,12 +1558,24 @@ void AcCmdCRChangeMagicTargetNotify::Read(
     .Read(command.targetOid);
 }
 
+void AcCmdCRChangeMagicTargetOK::Write(
+  const AcCmdCRChangeMagicTargetOK& command,
+  SinkStream& stream)
+{
+  stream.Write(command.characterOid)
+    .Write(command.targetOid)
+    .Write(command.f08)
+    .Write(command.f0A);
+}
+
 void AcCmdCRChangeMagicTargetOK::Read(
   AcCmdCRChangeMagicTargetOK& command,
   SourceStream& stream)
 {
   stream.Read(command.characterOid)
-    .Read(command.targetOid);
+    .Read(command.targetOid)
+    .Read(command.f08)
+    .Read(command.f0A);
 }
 
 void AcCmdCRChangeMagicTargetCancel::Read(
@@ -1583,6 +1639,29 @@ void AcCmdCRUseMagicItemNotify::Write(
   // Write trailer
   stream.Write(command.tail_u16);
   stream.Write(command.tail_u32);
+  
+  // Write extra timing/sync fields
+  stream.Write(command.extraA);
+  
+  // Write extraB and extraF for offensive magic types (2,3,14-19)
+  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  switch (baseType)
+  {
+    case 0x2:   // Bolt
+    case 0xe:   // Darkness (14)
+    case 0x10:  // Fire Dragon (16)
+    case 0x12:  // Thunder (18)
+    {
+      if (command.extraB.has_value() && command.extraF.has_value())
+      {
+        stream.Write(command.extraB.value());
+        stream.Write(command.extraF.value());
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 void AcCmdCRUseMagicItemNotify::Read(
@@ -1624,6 +1703,26 @@ void AcCmdCRUseMagicItemNotify::Read(
   // Read trailer
   stream.Read(command.tail_u16);
   stream.Read(command.tail_u32);
+  
+  // Read extra timing/sync fields
+  stream.Read(command.extraA);
+  
+  // Read extraB and extraF for offensive magic types (2,3,14-19)
+  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  switch (baseType)
+  {
+    case 0x2:   // Bolt
+    case 0xe:   // Darkness (14)
+    case 0x10:  // Fire Dragon (16)
+    case 0x12:  // Thunder (18)
+    {
+      stream.Read(command.extraB.emplace());
+      stream.Read(command.extraF.emplace());
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 void AcCmdRCTriggerActivate::Write(

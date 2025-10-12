@@ -26,6 +26,7 @@
 
 #include <spdlog/spdlog.h>
 #include <bitset>
+#include <random>
 
 namespace server
 {
@@ -1683,17 +1684,79 @@ void RaceDirector::HandleUseMagicItem(
 
   if (command.type_copy != racer.oid)
   {
-    // TODO: throw? return?
+    spdlog::warn("Client {} tried to use magic on behalf of different racer", clientId);
     return;
   }
 
-  // Send OK response (bolt included - client sends target in original command)
+  // Validate base magic type (convert crit types to base types for validation)
+  uint32_t baseMagicType = command.mode;
+  if (baseMagicType % 2 != 0)
+  {
+    // Client sent odd number (crit variant) - convert to base type for validation
+    baseMagicType -= 1;  // 3→2, 5→4, 7→6, etc.
+  }
+
+  // Validate player actually has this magic item
+  if (!racer.magicItem.has_value())
+  {
+    spdlog::warn("Client {} tried to use magic but doesn't have any magic item", clientId);
+    return;
+  }
+
+  if (racer.magicItem.value() != baseMagicType)
+  {
+    spdlog::warn("Client {} tried to use magic type {} but has magic type {}", 
+      clientId, baseMagicType, racer.magicItem.value());
+    return;
+  }
+
+  // Calculate critical hit based on horse ambition stat
+  uint32_t finalMagicType = baseMagicType;
+  
+  const auto characterRecord = GetServerInstance().GetDataDirector().GetCharacter(
+    clientContext.characterUid);
+  
+  characterRecord.Immutable([this, &finalMagicType, baseMagicType](const data::Character& character)
+  {
+    const auto horseRecord = GetServerInstance().GetDataDirector().GetHorseCache().Get(
+      character.mountUid());
+    
+    horseRecord->Immutable([&finalMagicType, baseMagicType](const data::Horse& horse)
+    {
+      // Calculate crit chance based on ambition stat
+      // Base crit chance: 0% at 0 ambition, increases by 1% per 10 ambition points
+      // Example: 50 ambition = 5% crit, 100 ambition = 10% crit
+      float critChance = static_cast<float>(horse.stats.ambition()) / 1000.0f;
+      
+      // Cap crit chance at 50%
+      critChance = std::min(critChance, 0.5f);
+      
+      // Roll for critical
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+      
+      if (dist(gen) < critChance)
+      {
+        finalMagicType = baseMagicType + 1;  // Convert to crit variant
+        spdlog::info("Critical magic! Ambition: {}, Chance: {:.1f}%", 
+          horse.stats.ambition(), critChance * 100.0f);
+      }
+    });
+  });
+
+  // Send OK response with SERVER-CALCULATED magic type
   protocol::AcCmdCRUseMagicItemOK response{};
   response.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
-  response.magic_type = static_cast<uint32_t>(command.mode);
+  response.magic_type = finalMagicType;  // Use calculated type (may be crit)
+  
+  // Echo extra timing/sync fields from client
+  response.extraA = command.extraA;
+  response.extraB = command.extraB;
+  response.extraF = command.extraF;
 
   // Set spatial data for modes 10/11 (ice wall)
-  if (command.mode == 10 || command.mode == 11)
+  if (baseMagicType == 10)
   {
     if (command.vecA.has_value() && command.vecB.has_value())
     {
@@ -1736,7 +1799,7 @@ void RaceDirector::HandleUseMagicItem(
 
   // Tail fields
   // Set tail_u16 to victim OID for bolt, otherwise attacker OID
-  if (command.mode == 2 && response.payload.ids_count > 0)
+  if (baseMagicType == 2 && response.payload.ids_count > 0)
   {
     response.tail_u16 = static_cast<uint16_t>(response.payload.ids[0]);  // Victim OID for bolt
   }
@@ -1756,10 +1819,15 @@ void RaceDirector::HandleUseMagicItem(
   // Notify other players AND apply effects
   protocol::AcCmdCRUseMagicItemNotify usageNotify{};
   usageNotify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
-  usageNotify.magic_type = static_cast<uint32_t>(command.mode);
+  usageNotify.magic_type = finalMagicType;  // Use SERVER-CALCULATED type (may be crit)
+  
+  // Echo extra timing/sync fields from client
+  usageNotify.extraA = command.extraA;
+  usageNotify.extraB = command.extraB;
+  usageNotify.extraF = command.extraF;
 
   // Set spatial data for modes 10/11 (ice wall)
-  if (command.mode == 10 || command.mode == 11)
+  if (baseMagicType == 10)
   {
     if (command.vecA.has_value() && command.vecB.has_value())
     {
@@ -1794,10 +1862,10 @@ void RaceDirector::HandleUseMagicItem(
     }
 
     // For bolt with targets, apply effects server-side
-    if (command.mode == 2 && usageNotify.payload.ids_count > 0)
+    if (baseMagicType == 2 && usageNotify.payload.ids_count > 0)
     {
       int16_t targetOid = usageNotify.payload.ids[0];
-      spdlog::info("Bolt fired at target OID {}", targetOid);
+      spdlog::info("Bolt fired at target OID {} (critical: {})", targetOid, finalMagicType == 3);
 
       // Remove target's magic item if they have one
       for (auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
@@ -1847,7 +1915,7 @@ void RaceDirector::HandleUseMagicItem(
 
   // Tail fields
   // Set tail_u16 to victim OID if bolt has targets, otherwise attacker OID
-  if (command.mode == 2 && usageNotify.payload.ids_count > 0)
+  if (baseMagicType == 2 && usageNotify.payload.ids_count > 0)
   {
     usageNotify.tail_u16 = static_cast<uint16_t>(usageNotify.payload.ids[0]);  // Victim OID for bolt
   }
@@ -1859,7 +1927,7 @@ void RaceDirector::HandleUseMagicItem(
 
   // Send usage notification to ALL players (including attacker for bolt)
   // Skip only for ice wall (has its own handling)
-  if (command.mode != 10) 
+  if (baseMagicType != 10) 
   {
     for (const auto& roomClientId : roomInstance.clients)
     {
@@ -1870,13 +1938,18 @@ void RaceDirector::HandleUseMagicItem(
   }
 
   // Special handling for ice wall
-  if (command.mode == 10)
+  if (baseMagicType == 10)
   {
     spdlog::info("Ice wall used! Spawning ice wall at player {} location", clientId);     
 
     protocol::AcCmdCRUseMagicItemNotify notify{};
     notify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
-    notify.magic_type = static_cast<uint32_t>(command.mode);
+    notify.magic_type = finalMagicType;  // Use calculated type (may be crit)
+    
+    // Echo extra timing/sync fields from client
+    notify.extraA = command.extraA;
+    notify.extraB = command.extraB;
+    notify.extraF = command.extraF;
 
     // Set spatial data for ice wall (mode 10)
     if (command.vecA.has_value() && command.vecB.has_value())
@@ -2053,8 +2126,8 @@ void RaceDirector::HandleChangeMagicTargetOK(
   ClientId clientId,
   const protocol::AcCmdCRChangeMagicTargetOK& command)
 {
-  spdlog::info("Player {} confirmed magic target: character OID {} -> target OID {}", 
-    clientId, command.characterOid, command.targetOid);
+  spdlog::info("Player {} confirmed magic target: character OID {} -> target OID {}, f08={}, f0A={}", 
+    clientId, command.characterOid, command.targetOid, command.f08, command.f0A);
   
   const auto& clientContext = _clients[clientId];
   auto& roomInstance = _roomInstances[clientContext.roomUid];
