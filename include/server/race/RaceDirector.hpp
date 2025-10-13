@@ -234,6 +234,10 @@ private:
     ClientId clientId,
     const protocol::AcCmdCRChangeMagicTargetCancel& command);
 
+  void HandleTriggerEvent(
+    ClientId clientId,
+    const protocol::AcCmdCRTriggerEvent& command);
+
   void HandleActivateSkillEffect(
     ClientId clientId,
     const protocol::AcCmdCRActivateSkillEffect& command);

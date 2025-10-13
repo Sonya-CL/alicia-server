@@ -1546,16 +1546,20 @@ void AcCmdCRChangeMagicTargetNotify::Write(
   const AcCmdCRChangeMagicTargetNotify& command,
   SinkStream& stream)
 {
-  stream.Write(command.characterOid)
-    .Write(command.targetOid);
+  stream.Write(command.v0)
+    .Write(command.v1)
+    .Write(command.v2)
+    .Write(command.v3);
 }
 
 void AcCmdCRChangeMagicTargetNotify::Read(
   AcCmdCRChangeMagicTargetNotify& command,
   SourceStream& stream)
 {
-  stream.Read(command.characterOid)
-    .Read(command.targetOid);
+  stream.Read(command.v0)
+    .Read(command.v1)
+    .Read(command.v2)
+    .Read(command.v3);
 }
 
 void AcCmdCRChangeMagicTargetOK::Write(
@@ -1725,24 +1729,36 @@ void AcCmdCRUseMagicItemNotify::Read(
   }
 }
 
+void AcCmdCRTriggerEvent::Write(
+  const AcCmdCRTriggerEvent& command,
+  SinkStream& stream)
+{
+  stream.Write(command.event_id)
+    .Write(command.arg);
+}
+
+void AcCmdCRTriggerEvent::Read(
+  AcCmdCRTriggerEvent& command,
+  SourceStream& stream)
+{
+  stream.Read(command.event_id)
+    .Read(command.arg);
+}
+
 void AcCmdRCTriggerActivate::Write(
   const AcCmdRCTriggerActivate& command,
   SinkStream& stream)
 {
-  stream.Write(command.characterOid)
-    .Write(command.triggerType)
-    .Write(command.triggerValue)
-    .Write(command.duration);
+  stream.Write(command.trigger_id)
+    .Write(command.state);
 }
 
 void AcCmdRCTriggerActivate::Read(
   AcCmdRCTriggerActivate& command,
   SourceStream& stream)
 {
-  stream.Read(command.characterOid)
-    .Read(command.triggerType)
-    .Read(command.triggerValue)
-    .Read(command.duration);
+  stream.Read(command.trigger_id)
+    .Read(command.state);
 }
 
 void AcCmdCRActivateSkillEffect::Write(

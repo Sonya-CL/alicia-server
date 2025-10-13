@@ -237,6 +237,12 @@ RaceDirector::RaceDirector(ServerInstance& serverInstance)
     {
       HandleChangeMagicTargetCancel(clientId, message);
     });
+
+  _commandServer.RegisterCommandHandler<protocol::AcCmdCRTriggerEvent>(
+    [this](ClientId clientId, const auto& message)
+    {
+      HandleTriggerEvent(clientId, message);
+    });
   
   _commandServer.RegisterCommandHandler<protocol::AcCmdCRActivateSkillEffect>(
     [this](ClientId clientId, const auto& message)
@@ -1723,27 +1729,61 @@ void RaceDirector::HandleUseMagicItem(
     
     horseRecord->Immutable([&finalMagicType, baseMagicType](const data::Horse& horse)
     {
-      // Calculate crit chance based on ambition stat
-      // Base crit chance: 0% at 0 ambition, increases by 1% per 10 ambition points
-      // Example: 50 ambition = 5% crit, 100 ambition = 10% crit
-      float critChance = static_cast<float>(horse.stats.ambition()) / 1000.0f;
-      
-      // Cap crit chance at 50%
-      critChance = std::min(critChance, 0.5f);
+      // Flat 15% critical hit chance for all magic
+      // TODO: Find out the crit hit chance used in OG Alicia and change the numbers
+      const float critChance = 0.15f;
       
       // Roll for critical
       std::random_device rd;
       std::mt19937 gen(rd());
       std::uniform_real_distribution<float> dist(0.0f, 1.0f);
       
-      if (dist(gen) < critChance)
+      float roll = dist(gen);
+      if (roll < critChance)
       {
         finalMagicType = baseMagicType + 1;  // Convert to crit variant
-        spdlog::info("Critical magic! Ambition: {}, Chance: {:.1f}%", 
-          horse.stats.ambition(), critChance * 100.0f);
+        spdlog::info("CRITICAL MAGIC! Roll: {:.3f} < {:.1f}% chance (type {} → {})", 
+          roll, critChance * 100.0f, baseMagicType, finalMagicType);
+      }
+      else
+      {
+        spdlog::info("Normal magic. Roll: {:.3f} >= {:.1f}% chance (type {})", 
+          roll, critChance * 100.0f, baseMagicType);
       }
     });
   });
+
+  // For bolt magic, send targeting notify FIRST to prime the victim
+  if (baseMagicType == 2 && command.idsBlock.has_value() && command.idsBlock->ids_count > 0)
+  {
+    int16_t targetOid = command.idsBlock->ids[0];
+    
+    protocol::AcCmdCRChangeMagicTargetNotify preTargetNotify{
+      .v0 = static_cast<uint16_t>(command.type_copy),  // Attacker OID
+      .v1 = 0,                                         // Old target (0 = none)
+      .v2 = static_cast<uint16_t>(targetOid),         // New target OID
+      .v3 = static_cast<uint16_t>(baseMagicType)      // Magic type
+    };
+    
+    spdlog::info("=== BOLT: Sending TargetNotify FIRST ===");
+    spdlog::info("  v0 (Attacker OID): {}", preTargetNotify.v0);
+    spdlog::info("  v1 (Old Target): {}", preTargetNotify.v1);
+    spdlog::info("  v2 (New Target OID): {}", preTargetNotify.v2);
+    spdlog::info("  v3 (Magic Type): {}", preTargetNotify.v3);
+    spdlog::info("  Broadcasting to {} clients in room", roomInstance.clients.size());
+    
+    for (const auto& roomClientId : roomInstance.clients)
+    {
+      const auto& ctx = _clients[roomClientId];
+      auto& r = roomInstance.tracker.GetRacer(ctx.characterUid);
+      spdlog::info("    → Client {} (CharUID: {}, OID: {})", 
+        roomClientId, ctx.characterUid, r.oid);
+      
+      _commandServer.QueueCommand<decltype(preTargetNotify)>(
+        roomClientId, 
+        [preTargetNotify]() { return preTargetNotify; });
+    }
+  }
 
   // Send OK response with SERVER-CALCULATED magic type
   protocol::AcCmdCRUseMagicItemOK response{};
@@ -1818,7 +1858,20 @@ void RaceDirector::HandleUseMagicItem(
 
   // Notify other players AND apply effects
   protocol::AcCmdCRUseMagicItemNotify usageNotify{};
-  usageNotify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
+  
+  // For bolt magic, actor_oid should be the TARGET (who experiences the effect)
+  // For self-buff magic, actor_oid should be the CASTER
+  if (baseMagicType == 2 && command.idsBlock.has_value() && command.idsBlock->ids_count > 0)
+  {
+    usageNotify.actor_oid = static_cast<uint16_t>(command.idsBlock->ids[0]);  // Target OID for bolt
+    spdlog::info("=== BOLT: Setting actor_oid to TARGET OID {} (not attacker {})", 
+      usageNotify.actor_oid, command.type_copy);
+  }
+  else
+  {
+    usageNotify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID for self-buffs
+  }
+  
   usageNotify.magic_type = finalMagicType;  // Use SERVER-CALCULATED type (may be crit)
   
   // Echo extra timing/sync fields from client
@@ -1865,7 +1918,9 @@ void RaceDirector::HandleUseMagicItem(
     if (baseMagicType == 2 && usageNotify.payload.ids_count > 0)
     {
       int16_t targetOid = usageNotify.payload.ids[0];
-      spdlog::info("Bolt fired at target OID {} (critical: {})", targetOid, finalMagicType == 3);
+      spdlog::info("=== BOLT HIT PROCESSING ===");
+      spdlog::info("  Target OID: {}", targetOid);
+      spdlog::info("  Is Critical: {}", finalMagicType == 3);
 
       // Remove target's magic item if they have one
       for (auto& [targetUid, targetRacer] : roomInstance.tracker.GetRacers())
@@ -1873,7 +1928,8 @@ void RaceDirector::HandleUseMagicItem(
         if (targetRacer.oid == targetOid && targetRacer.magicItem.has_value())
         {
           uint32_t lostItemId = targetRacer.magicItem.value();
-          spdlog::info("Target {} lost magic item {}", targetOid, lostItemId);
+          spdlog::info("  → Target OID {} (UID {}) lost magic item {}", 
+            targetOid, targetUid, lostItemId);
           targetRacer.magicItem.reset();
           
           // Send explicit MagicExpire command to victim
@@ -1903,7 +1959,7 @@ void RaceDirector::HandleUseMagicItem(
 
       // Consume attacker's bolt
       racer.magicItem.reset();
-      spdlog::info("Attacker {} consumed bolt", command.type_copy);
+      spdlog::info("  → Attacker OID {} consumed bolt", command.type_copy);
     }
   }
   
@@ -1929,8 +1985,22 @@ void RaceDirector::HandleUseMagicItem(
   // Skip only for ice wall (has its own handling)
   if (baseMagicType != 10) 
   {
+    spdlog::info("=== Broadcasting UseMagicItemNotify ===");
+    spdlog::info("  Actor OID: {}, Magic Type: {}, Target Count: {}", 
+      usageNotify.actor_oid, usageNotify.magic_type, usageNotify.payload.ids_count);
+    if (usageNotify.payload.ids_count > 0)
+    {
+      spdlog::info("  Target OID: {}", usageNotify.payload.ids[0]);
+    }
+    spdlog::info("  Broadcasting to {} clients", roomInstance.clients.size());
+    
     for (const auto& roomClientId : roomInstance.clients)
     {
+      const auto& ctx = _clients[roomClientId];
+      auto& r = roomInstance.tracker.GetRacer(ctx.characterUid);
+      spdlog::info("    → Client {} (CharUID: {}, OID: {})", 
+        roomClientId, ctx.characterUid, r.oid);
+      
       _commandServer.QueueCommand<decltype(usageNotify)>(
         roomClientId,
         [usageNotify]() { return usageNotify; });
@@ -2086,39 +2156,39 @@ void RaceDirector::HandleChangeMagicTargetNotify(
   ClientId clientId,
   const protocol::AcCmdCRChangeMagicTargetNotify& command)
 {
-  spdlog::info("Player {} changed magic target: character OID {} -> target OID {}", 
-    clientId, command.characterOid, command.targetOid);
+  spdlog::info("Player {} changed magic target: v0={}, v1={}, v2={}, v3={}", 
+    clientId, command.v0, command.v1, command.v2, command.v3);
   
   const auto& clientContext = _clients[clientId];
   auto& roomInstance = _roomInstances[clientContext.roomUid];
   auto& racer = roomInstance.tracker.GetRacer(clientContext.characterUid);
   
-  if (command.characterOid != racer.oid)
+  uint16_t characterOid = command.v0;  // Attacker OID
+  uint16_t targetOid = command.v1;     // Victim OID
+  
+  if (characterOid != racer.oid)
   {
     spdlog::warn("Character OID mismatch in HandleChangeMagicTargetNotify");
     return;
   }
   
   // Update current target
-  racer.currentTarget = command.targetOid;
+  racer.currentTarget = targetOid;
   
-  // Send targeting notification to the target
+  // Broadcast targeting notification to ALL players in room
+  // (so everyone can see the targeting indicator)
   protocol::AcCmdCRChangeMagicTargetNotify targetNotify{
-    .characterOid = command.characterOid,
-    .targetOid = command.targetOid
+    .v0 = command.v0,
+    .v1 = command.v1,
+    .v2 = command.v2,
+    .v3 = command.v3
   };
   
-  // Find the client ID for this target and send notification
   for (const ClientId& roomClientId : roomInstance.clients)
   {
-    const auto& targetClientContext = _clients[roomClientId];
-    if (roomInstance.tracker.GetRacer(targetClientContext.characterUid).oid == command.targetOid)
-    {
-      _commandServer.QueueCommand<decltype(targetNotify)>(
-        roomClientId, 
-        [targetNotify]() { return targetNotify; });
-      break;
-    }
+    _commandServer.QueueCommand<decltype(targetNotify)>(
+      roomClientId, 
+      [targetNotify]() { return targetNotify; });
   }
 }
 
@@ -2265,6 +2335,38 @@ void RaceDirector::HandleChangeMagicTargetCancel(
   racer.currentTarget = tracker::InvalidEntityOid;
   
   spdlog::info("Character {} exited targeting mode", command.characterOid);
+}
+
+void RaceDirector::HandleTriggerEvent(
+  ClientId clientId,
+  const protocol::AcCmdCRTriggerEvent& command)
+{
+  spdlog::info("Player {} triggered event: event_id={}, arg={}", 
+    clientId, command.event_id, command.arg);
+  
+  const auto& clientContext = _clients[clientId];
+  auto& roomInstance = _roomInstances[clientContext.roomUid];
+  
+  // Get the sender's OID from the room tracker
+  auto& racer = roomInstance.tracker.GetRacer(clientContext.characterUid);
+  
+  // This command is for client-initiated trigger events
+  
+  protocol::AcCmdRCTriggerActivate response{
+    .trigger_id = command.event_id,
+    .state = static_cast<uint16_t>(command.arg)  // Use arg as state
+  };
+  
+  // Broadcast trigger activation to all clients in the room
+  for (const ClientId& roomClientId : roomInstance.clients)
+  {
+    _commandServer.QueueCommand<decltype(response)>(
+      roomClientId,
+      [response]() { return response; });
+  }
+  
+  spdlog::debug("Broadcasted trigger activation for event {} to all clients in room", 
+    command.event_id);
 }
 
 void RaceDirector::HandleActivateSkillEffect(

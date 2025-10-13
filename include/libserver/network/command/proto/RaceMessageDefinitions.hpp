@@ -2046,8 +2046,10 @@ struct AcCmdCRStartMagicTarget
 
 struct AcCmdCRChangeMagicTargetNotify
 {
-  uint16_t characterOid;
-  uint16_t targetOid;
+  uint16_t v0;  // +0x04 - Character OID (attacker)
+  uint16_t v1;  // +0x06 - Target OID (victim)
+  uint16_t v2;  // +0x08 - Unknown parameter
+  uint16_t v3;  // +0x0A - Unknown parameter
 
   static Command GetCommand()
   {
@@ -2171,12 +2173,35 @@ struct AcCmdRCMagicExpire
     SourceStream& stream);
 };
 
+struct AcCmdCRTriggerEvent
+{
+  uint32_t event_id;  // Event ID to trigger
+  uint32_t arg;       // Event argument/parameter
+
+  static Command GetCommand()
+  {
+    return Command::AcCmdCRTriggerEvent;
+  }
+
+  //! Writes the command to a provided sink stream.
+  //! @param command Command.
+  //! @param stream Sink stream.
+  static void Write(
+    const AcCmdCRTriggerEvent& command,
+    SinkStream& stream);
+
+  //! Reader a command from a provided source stream.
+  //! @param command Command.
+  //! @param stream Source stream.
+  static void Read(
+    AcCmdCRTriggerEvent& command,
+    SourceStream& stream);
+};
+
 struct AcCmdRCTriggerActivate
 {
-  uint16_t characterOid;
-  uint32_t triggerType;     // Type of trigger/animation to activate
-  uint32_t triggerValue;    // Additional trigger parameter
-  float duration;           // Duration of the effect
+  uint32_t trigger_id;  // ID of the trigger/gate/device to activate
+  uint16_t state;       // 1 = activate, 0 = deactivate
 
   static Command GetCommand()
   {
