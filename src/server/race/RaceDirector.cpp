@@ -1859,25 +1859,8 @@ void RaceDirector::HandleUseMagicItem(
   // Notify other players AND apply effects
   protocol::AcCmdCRUseMagicItemNotify usageNotify{};
   
-  // For bolt magic, actor_oid should be the TARGET (who experiences the effect)
-  // For self-buff magic, actor_oid should be the CASTER
-  if (baseMagicType == 2 && command.idsBlock.has_value() && command.idsBlock->ids_count > 0)
-  {
-    usageNotify.actor_oid = static_cast<uint16_t>(command.idsBlock->ids[0]);  // Target OID for bolt
-    spdlog::info("=== BOLT: Setting actor_oid to TARGET OID {} (not attacker {})", 
-      usageNotify.actor_oid, command.type_copy);
-  }
-  else
-  {
-    usageNotify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID for self-buffs
-  }
-  
-  usageNotify.magic_type = finalMagicType;  // Use SERVER-CALCULATED type (may be crit)
-  
-  // Echo extra timing/sync fields from client
-  usageNotify.extraA = command.extraA;
-  usageNotify.extraB = command.extraB;
-  usageNotify.extraF = command.extraF;
+  usageNotify.actor_oid = static_cast<uint16_t>(command.type_copy);
+  usageNotify.magic_type = finalMagicType;
 
   // Set spatial data for modes 10/11 (ice wall)
   if (baseMagicType == 10)
@@ -2016,10 +1999,7 @@ void RaceDirector::HandleUseMagicItem(
     notify.actor_oid = static_cast<uint16_t>(command.type_copy);  // Caster OID
     notify.magic_type = finalMagicType;  // Use calculated type (may be crit)
     
-    // Echo extra timing/sync fields from client
-    notify.extraA = command.extraA;
-    notify.extraB = command.extraB;
-    notify.extraF = command.extraF;
+    // NOTE: Notify packet does NOT have extraA/extraB/extraF fields (unlike UseMagicItemOK)
 
     // Set spatial data for ice wall (mode 10)
     if (command.vecA.has_value() && command.vecB.has_value())

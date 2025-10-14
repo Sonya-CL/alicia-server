@@ -1366,23 +1366,33 @@ void AcCmdCRUseMagicItemOK::Write(
   stream.Write(command.actor_oid);
   stream.Write(command.magic_type);
 
-  // Write conditional spatial data (for magic_type 10/11)
   if (command.spatial.has_value())
   {
     stream.Write(command.spatial->vecA.x).Write(command.spatial->vecA.y).Write(command.spatial->vecA.z);
     stream.Write(command.spatial->vecB.x).Write(command.spatial->vecB.y).Write(command.spatial->vecB.z);
   }
 
-  // Write common payload (always present)
-  stream.Write(command.payload.ids_count);
-  
-  // Write IDs array (only ids_count entries are valid)
-  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  switch (baseType)
   {
-    stream.Write(command.payload.ids[i]);
+    case 0x2:
+    case 0xa:
+    case 0xc:
+    case 0xe:
+    case 0x10:
+    case 0x12:
+    {
+      stream.Write(command.payload.ids_count);
+      for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+      {
+        stream.Write(command.payload.ids[i]);
+      }
+      break;
+    }
+    default:
+      break;
   }
 
-  // Write trailer
   stream.Write(command.tail_u16);
   stream.Write(command.tail_u32);
   
@@ -1391,7 +1401,7 @@ void AcCmdCRUseMagicItemOK::Write(
   
   // Write extraB and extraF for offensive magic types (2,3,14-19)
   // Use magic_type (not mode) since this is the response
-  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
   switch (baseType)
   {
     case 0x2:   // Bolt
@@ -1419,7 +1429,6 @@ void AcCmdCRUseMagicItemOK::Read(
   stream.Read(command.actor_oid);
   stream.Read(command.magic_type);
 
-  // Read conditional spatial data (for magic_type 10/11)
   if (command.magic_type == 10 || command.magic_type == 11)
   {
     Spatial spatial;
@@ -1432,22 +1441,36 @@ void AcCmdCRUseMagicItemOK::Read(
     command.spatial = std::nullopt;
   }
 
-  // Read common payload (always present)
-  stream.Read(command.payload.ids_count);
-  
-  // Read IDs array (only ids_count entries are valid)
-  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  switch (baseType)
   {
-    stream.Read(command.payload.ids[i]);
-  }
-  
-  // Zero out unused IDs
-  for (uint8_t i = command.payload.ids_count; i < 8; ++i)
-  {
-    command.payload.ids[i] = 0;
+    case 0x2:
+    case 0xa:
+    case 0xc:
+    case 0xe:
+    case 0x10:
+    case 0x12:
+    {
+      stream.Read(command.payload.ids_count);
+      for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+      {
+        stream.Read(command.payload.ids[i]);
+      }
+      for (uint8_t i = command.payload.ids_count; i < 8; ++i)
+      {
+        command.payload.ids[i] = 0;
+      }
+      break;
+    }
+    default:
+      command.payload.ids_count = 0;
+      for (uint8_t i = 0; i < 8; ++i)
+      {
+        command.payload.ids[i] = 0;
+      }
+      break;
   }
 
-  // Read trailer
   stream.Read(command.tail_u16);
   stream.Read(command.tail_u32);
   
@@ -1455,7 +1478,7 @@ void AcCmdCRUseMagicItemOK::Read(
   stream.Read(command.extraA);
   
   // Read extraB and extraF for offensive magic types (2,3,14-19)
-  uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
+  baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
   switch (baseType)
   {
     case 0x2:   // Bolt
@@ -1620,63 +1643,47 @@ void AcCmdCRUseMagicItemNotify::Write(
   const AcCmdCRUseMagicItemNotify& command,
   SinkStream& stream)
 {
-  // Write header
   stream.Write(command.actor_oid);
   stream.Write(command.magic_type);
 
-  // Write conditional spatial data (for magic_type 10/11)
   if (command.spatial.has_value())
   {
     stream.Write(command.spatial->vecA.x).Write(command.spatial->vecA.y).Write(command.spatial->vecA.z);
     stream.Write(command.spatial->vecB.x).Write(command.spatial->vecB.y).Write(command.spatial->vecB.z);
   }
 
-  // Write common payload (always present)
-  stream.Write(command.payload.ids_count);
-  
-  // Write IDs array (only ids_count entries are valid)
-  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
-  {
-    stream.Write(command.payload.ids[i]);
-  }
-
-  // Write trailer
-  stream.Write(command.tail_u16);
-  stream.Write(command.tail_u32);
-  
-  // Write extra timing/sync fields
-  stream.Write(command.extraA);
-  
-  // Write extraB and extraF for offensive magic types (2,3,14-19)
   uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
   switch (baseType)
   {
-    case 0x2:   // Bolt
-    case 0xe:   // Darkness (14)
-    case 0x10:  // Fire Dragon (16)
-    case 0x12:  // Thunder (18)
+    case 0x2:
+    case 0xa:
+    case 0xc:
+    case 0xe:
+    case 0x10:
+    case 0x12:
     {
-      if (command.extraB.has_value() && command.extraF.has_value())
+      stream.Write(command.payload.ids_count);
+      for (uint8_t i = 0; i < command.payload.ids_count; ++i)
       {
-        stream.Write(command.extraB.value());
-        stream.Write(command.extraF.value());
+        stream.Write(command.payload.ids[i]);
       }
       break;
     }
     default:
       break;
   }
+
+  stream.Write(command.tail_u16);
+  stream.Write(command.tail_u32);
 }
 
 void AcCmdCRUseMagicItemNotify::Read(
   AcCmdCRUseMagicItemNotify& command,
   SourceStream& stream)
 {
-  // Read header
   stream.Read(command.actor_oid);
   stream.Read(command.magic_type);
 
-  // Read conditional spatial data (for magic_type 10/11)
   if (command.magic_type == 10 || command.magic_type == 11)
   {
     Spatial spatial;
@@ -1689,44 +1696,38 @@ void AcCmdCRUseMagicItemNotify::Read(
     command.spatial = std::nullopt;
   }
 
-  // Read common payload (always present)
-  stream.Read(command.payload.ids_count);
-  
-  // Read IDs array (only ids_count entries are valid)
-  for (uint8_t i = 0; i < command.payload.ids_count; ++i)
-  {
-    stream.Read(command.payload.ids[i]);
-  }
-  
-  // Zero out unused IDs
-  for (uint8_t i = command.payload.ids_count; i < 8; ++i)
-  {
-    command.payload.ids[i] = 0;
-  }
-
-  // Read trailer
-  stream.Read(command.tail_u16);
-  stream.Read(command.tail_u32);
-  
-  // Read extra timing/sync fields
-  stream.Read(command.extraA);
-  
-  // Read extraB and extraF for offensive magic types (2,3,14-19)
   uint32_t baseType = command.magic_type % 2 == 0 ? command.magic_type : command.magic_type - 1;
   switch (baseType)
   {
-    case 0x2:   // Bolt
-    case 0xe:   // Darkness (14)
-    case 0x10:  // Fire Dragon (16)
-    case 0x12:  // Thunder (18)
+    case 0x2:
+    case 0xa:
+    case 0xc:
+    case 0xe:
+    case 0x10:
+    case 0x12:
     {
-      stream.Read(command.extraB.emplace());
-      stream.Read(command.extraF.emplace());
+      stream.Read(command.payload.ids_count);
+      for (uint8_t i = 0; i < command.payload.ids_count; ++i)
+      {
+        stream.Read(command.payload.ids[i]);
+      }
+      for (uint8_t i = command.payload.ids_count; i < 8; ++i)
+      {
+        command.payload.ids[i] = 0;
+      }
       break;
     }
     default:
+      command.payload.ids_count = 0;
+      for (uint8_t i = 0; i < 8; ++i)
+      {
+        command.payload.ids[i] = 0;
+      }
       break;
   }
+
+  stream.Read(command.tail_u16);
+  stream.Read(command.tail_u32);
 }
 
 void AcCmdCRTriggerEvent::Write(

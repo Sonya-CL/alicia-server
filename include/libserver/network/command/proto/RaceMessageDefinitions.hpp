@@ -1859,16 +1859,8 @@ struct AcCmdCRUseMagicItemNotify {
   // --- Common payload for all types ---
   CommonPayload payload;  // Always present
 
-  // --- Trailer (handled by vtable [3]/[4]) ---
-  // FUN_004d5730 reads a u16 then a u32 into (this+0x38 bytes) and (this+0x3C bytes).
-  // FUN_004d5800 writes them back. These are always appended after the above.
-  uint16_t tail_u16;     // purpose unknown (status/flags/slot/etc.)
-  uint32_t tail_u32;     // purpose unknown (timestamp/sequence/seed/etc.)
-  
-  // --- Extra timing/sync fields (echo from client) ---
-  uint32_t extraA{0};      // Extra parameter (always present)
-  std::optional<uint32_t> extraB;  // Extra parameter (offensive magic: 2,3,14-19)
-  std::optional<float> extraF;     // Extra float parameter (offensive magic: 2,3,14-19)
+  uint16_t tail_u16;
+  uint32_t tail_u32;
 
   // Note: the class has internal working fields too (e.g., this[7] zeroed in reader),
   // but those aren't transmitted—just runtime state.
